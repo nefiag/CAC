@@ -1,11 +1,12 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Layout, Menu, Tabs, Tag, Space, Table, Card } from 'antd';
+import { Layout, Menu, Tabs, Tag, Space, Table, Card, Select } from 'antd';
 import {
   EditOutlined,
   BankOutlined,
   AccountBookOutlined,
   UnorderedListOutlined,
   BarChartOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { api } from './api';
 import { VoucherEditor } from './pages/VoucherEditor';
@@ -17,12 +18,16 @@ const { Header, Sider, Content } = Layout;
 
 export default function App() {
   const [ctx, setCtx] = useState<any>(null);
+  const [selectedSetId, setSelectedSetId] = useState<string>(
+    () => localStorage.getItem('ge_account_set_id') || '00000000-0000-0000-0000-000000000001'
+  );
   const [activeKey, setActiveKey] = useState('statements');
   const [refreshTick, setRefreshTick] = useState(0);
   const [vouchers, setVouchers] = useState<any[]>([]);
 
-  const loadBootstrap = async () => {
-    const res = await api.get('/bootstrap');
+  const loadBootstrap = async (targetSetId?: string) => {
+    const idToLoad = targetSetId || selectedSetId;
+    const res = await api.get('/bootstrap', { params: { account_set_id: idToLoad } });
     setCtx(res.data);
   };
 
@@ -32,19 +37,26 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadBootstrap();
-  }, []);
+    loadBootstrap(selectedSetId);
+  }, [selectedSetId]);
 
   useEffect(() => {
-    if (ctx?.account_set) {
-      if (ctx?.account_set?.id) loadVouchers(ctx?.account_set?.id, ctx?.account_set?.current_period);
+    if (ctx?.account_set?.id) {
+      loadVouchers(ctx.account_set.id, ctx.account_set.current_period);
     }
   }, [ctx, refreshTick]);
+
+  const handleSwitchAccountSet = (newSetId: string) => {
+    localStorage.setItem('ge_account_set_id', newSetId);
+    setSelectedSetId(newSetId);
+    setRefreshTick((t) => t + 1);
+  };
 
   if (!ctx) return <div style={{ padding: 40 }}>正在初始化 REA 双核财务工作台...</div>;
 
   const setId = ctx?.account_set?.id;
   const period = ctx?.account_set?.current_period;
+  const accountSets = ctx?.account_sets || (ctx?.account_set ? [ctx.account_set] : []);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -70,7 +82,16 @@ export default function App() {
       <Layout>
         <Header style={{ background: '#fff', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', height: 52 }}>
           <Space>
-            <strong>{ctx?.account_set?.company_name}</strong>
+            <SwapOutlined style={{ color: '#1677ff' }} />
+            <Select
+              value={setId}
+              onChange={handleSwitchAccountSet}
+              style={{ width: 290, fontWeight: 'bold' }}
+              options={accountSets.map((s: any) => ({
+                value: s.id,
+                label: s.company_name,
+              }))}
+            />
             <Tag color="blue">{ctx?.account_set?.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag>
             <Tag color="green">REA 双核驱动</Tag>
           </Space>
@@ -91,6 +112,7 @@ export default function App() {
                 label: 'AI 银行对账单',
                 children: (
                   <BankStatements
+                    key={`stmt-${setId}`}
                     accountSetId={setId}
                     bankAccounts={ctx.bank_accounts}
                     accounts={ctx.accounts}
@@ -103,6 +125,7 @@ export default function App() {
                 label: '录凭证',
                 children: (
                   <VoucherEditor
+                    key={`ve-${setId}`}
                     accountSetId={setId}
                     period={period}
                     accounts={ctx.accounts}
@@ -114,7 +137,7 @@ export default function App() {
                 key: 'voucher_list',
                 label: '查凭证',
                 children: (
-                  <Card title={`记账凭证列表（${period}）`}>
+                  <Card title={`记账凭证列表（${ctx?.account_set?.company_name} · ${period}）`}>
                     <Table
                       rowKey="id"
                       dataSource={vouchers}
@@ -142,10 +165,11 @@ export default function App() {
                 label: '科目余额表',
                 children: (
                   <TrialBalance
+                    key={`tb-${setId}`}
                     accountSetId={setId}
                     period={period}
                     refreshKey={refreshTick}
-                    onRefreshBootstrap={loadBootstrap}
+                    onRefreshBootstrap={() => loadBootstrap(setId)}
                   />
                 ),
               },
@@ -154,6 +178,7 @@ export default function App() {
                 label: '财务规范报表',
                 children: (
                   <FinancialReports
+                    key={`fr-${setId}`}
                     accountSetId={setId}
                     defaultPeriod={period}
                     accounts={ctx.accounts}
@@ -168,7 +193,3 @@ export default function App() {
     </Layout>
   );
 }
-
-
-
-

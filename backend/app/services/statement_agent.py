@@ -19,14 +19,29 @@ from ..models import ChartOfAccount, BankAccount, BankStatement
 
 OPENING_CUTOFF = date(2024, 1, 1)
 
+BSTER_SET_ID = "00000000-0000-0000-0000-000000000001"
+YT_SET_ID = "00000000-0000-0000-0000-000000000002"
+YT_DEFAULT_BANK_ID = "00000000-0000-0000-0000-000000000020"
+
 BANK_TAIL_TO_CODE = {
-    "7103": "100209",   # 农商行城北支行7103
-    "6321": "100215",   # 农商行6321
-    "1502": "100211",   # 宁波银行1502
-    "1446": "100212",   # 宁波银行1446
-    "7104": "100208",   # 农商行监管账户7104
-    "10047": "100210",  # 农商行贷款专户10047
+    "7103": "100209",   # 博士特-农商行城北支行7103
+    "6321": "100215",   # 博士特-农商行6321
+    "1502": "100211",   # 博士特-宁波银行1502
+    "1446": "100212",   # 博士特-宁波银行1446
+    "7104": "100208",   # 博士特-农商行监管账户7104
+    "10047": "100210",  # 博士特-农商行贷款专户10047
+    "494642": "100201", # 宇天-宁波银行494642
+    "98005": "100211",  # 宇天-内部账户98005
 }
+
+
+def _detect_company_set_id(filename: str, text_hint: str, fallback_set_id: str) -> str:
+    combined = f"{filename} {text_hint}"
+    if any(k in combined for k in ("宇天", "494642", "98005")):
+        return YT_SET_ID
+    if any(k in combined for k in ("博士特", "7103", "6321", "1502", "1446", "7104", "10047")):
+        return BSTER_SET_ID
+    return fallback_set_id
 
 LOAN_TAIL_TO_CODE = {
     "67859": "230102",   # 长期借款_银行贷款（农商行城北支行）
@@ -160,7 +175,7 @@ def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: st
         vision_rows.append({
             "source_file": filename,
             "row_idx": idx,
-            "bank_code": file_bank_code,
+            "bank_code": file_bank_code,`n                            "target_set_id": file_set_id,
             "tx_date": tx_d,
             "direction": direction,
             "amount": abs(amt),
@@ -192,7 +207,7 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
         top_meta = " ".join(str(x) for x in df_raw.iloc[:header_idx].values.flatten() if pd.notna(x))
         df = df_raw.iloc[header_idx + 1:].copy()
         df.columns = [str(c).strip() for c in df_raw.iloc[header_idx].tolist()]
-        file_bank_code = _detect_account_code(filename, f"{top_meta} {' '.join(df.columns)}", fallback_code)
+        file_bank_code = _detect_account_code(filename, f"{top_meta} {' '.join(df.columns)}", fallback_code)`n        file_set_id = _detect_company_set_id(filename, f"{top_meta} {' '.join(df.columns)}", "")
 
         for idx, r in df.iterrows():
             tx_d = _parse_date(r.get("交易日期") or r.get("日期") or r.get("交易时间") or r.get("记账日期"))
@@ -236,7 +251,7 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
             rows.append({
                 "source_file": filename,
                 "row_idx": idx,
-                "bank_code": bank_code,
+                "bank_code": bank_code,`n                "target_set_id": _detect_company_set_id(filename, row_acct_hint, file_set_id),
                 "tx_date": tx_d,
                 "direction": direction,
                 "amount": round(amt, 2),
@@ -252,7 +267,7 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             head_text = "\n".join(p.extract_text() or "" for p in pdf.pages[:2])
             extracted_chars = len(head_text.strip())
-            file_bank_code = _detect_account_code(filename, head_text[:800], fallback_code)
+            file_bank_code = _detect_account_code(filename, head_text[:800], fallback_code)`n            file_set_id = _detect_company_set_id(filename, head_text[:800], "")
             for p_idx, page in enumerate(pdf.pages):
                 for t_idx, tb in enumerate(page.extract_tables() or []):
                     for r_idx, line in enumerate(tb):
@@ -282,7 +297,7 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
                         rows.append({
                             "source_file": filename,
                             "row_idx": p_idx * 10000 + t_idx * 100 + r_idx,
-                            "bank_code": file_bank_code,
+                            "bank_code": file_bank_code,`n                            "target_set_id": file_set_id,
                             "tx_date": tx_d,
                             "direction": direction,
                             "amount": round(nums[0], 2),
@@ -424,7 +439,7 @@ async def ingest_bank_statement_batch(
                 dedup_skipped += 1
                 continue
 
-        fp_raw = f"{account_set_id}|{current_bank_code}|{tx_d.isoformat()}|{direction}|{amt:.2f}|{cp}|{cp_acct}|{raw_sum}"
+        row_set_id = r.get("target_set_id") or account_set_id`n        fp_raw = f"{row_set_id}|{current_bank_code}|{tx_d.isoformat()}|{direction}|{amt:.2f}|{cp}|{cp_acct}|{raw_sum}"
         fp = hashlib.sha256(fp_raw.encode("utf-8")).hexdigest()
         if fp in seen_batch_fps:
             dedup_skipped += 1
@@ -492,10 +507,14 @@ async def ingest_bank_statement_batch(
                 conf = Decimal("0.9800")
                 label = "支取"
 
-        # 规则 2：跨公司关联方（昆山宇天 -> 113340）
-        if not suggested_code and ("昆山宇天" in cp or "宇天新能源" in cp):
+        # 规则 2：跨公司关联方往来（博士特 <-> 昆山宇天 -> 113340）
+        row_set_id = r.get("target_set_id") or account_set_id
+        if not suggested_code and (
+            (row_set_id == BSTER_SET_ID and ("昆山宇天" in cp or "宇天新能源" in cp))
+            or (row_set_id == YT_SET_ID and "博士特" in cp)
+        ):
             suggested_code = "113340"
-            biz_tag = "INTERCOMPANY_YT"
+            biz_tag = "INTERCOMPANY_RELATED"
             conf = Decimal("0.9800")
 
         # 规则 3：特殊贷款归集账号
@@ -592,8 +611,11 @@ async def ingest_bank_statement_batch(
             else None
         )
 
+        row_set_id = r.get("target_set_id") or account_set_id
+        if row_set_id == YT_SET_ID:
+            target_bank_account_id = YT_DEFAULT_BANK_ID
         stmt = BankStatement(
-            account_set_id=account_set_id,
+            account_set_id=row_set_id,
             bank_account_id=target_bank_account_id,
             tx_fingerprint=r["_fp"],
             tx_date=_month_end_dt(tx_d),
@@ -619,8 +641,10 @@ async def ingest_bank_statement_batch(
     db.add_all(created_records)
     await db.commit()
 
+    current_view_records = [s for s in created_records if s.account_set_id == account_set_id]
     return {
-        "statements": created_records,
+        "statements": current_view_records,
+        "total_created_all_sets": len(created_records),
         "total_extracted": total_extracted,
         "dedup_skipped": dedup_skipped,
     }
@@ -640,3 +664,4 @@ async def ingest_bank_statement_file(
         files=[(filename, content)],
     )
     return res["statements"]
+

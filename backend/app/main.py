@@ -37,7 +37,9 @@ app.add_middleware(
 
 
 DEFAULT_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000001"
+YT_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000002"
 DEFAULT_BANK_ACCOUNT_ID = "00000000-0000-0000-0000-000000000010"
+YT_BANK_ACCOUNT_ID = "00000000-0000-0000-0000-000000000020"
 
 
 @app.on_event("startup")
@@ -46,86 +48,165 @@ async def on_startup():
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as db:
-        res = await db.execute(select(AccountSet).where(AccountSet.id == DEFAULT_ACCOUNT_SET_ID))
-        if not res.scalar_one_or_none():
+        # 1. 确保博士特账套存在并更新正式企业名称
+        bster_set = (
+            await db.execute(select(AccountSet).where(AccountSet.id == DEFAULT_ACCOUNT_SET_ID))
+        ).scalar_one_or_none()
+        if not bster_set:
             db.add(
                 AccountSet(
                     id=DEFAULT_ACCOUNT_SET_ID,
-                    company_name="示例科技有限公司（GeAccounting演示账套）",
+                    company_name="博士特电子科技（昆山）有限公司",
                     taxpayer_type="GENERAL",
                     accounting_standard="SMALL_ENT_2013",
                     start_period="2026-01",
                     current_period="2026-11",
                 )
             )
-            seed_accounts = [
-                ("1001", "库存现金", "KCXJ", "资产", "DEBIT", True, []),
-                ("1002", "银行存款", "YHCK", "资产", "DEBIT", False, []),
-                ("100201", "银行存款-招商银行基本户", "YHCKZSYH", "资产", "DEBIT", True, []),
-                ("1122", "应收账款", "YSZK", "资产", "DEBIT", True, ["CUSTOMER"]),
-                ("1405", "库存商品", "KCSP", "资产", "DEBIT", True, []),
-                ("1601", "固定资产", "GDZC", "资产", "DEBIT", True, []),
-                ("2202", "应付账款", "YFZK", "负债", "CREDIT", True, ["VENDOR"]),
-                ("2211", "应付职工薪酬", "YFZGXC", "负债", "CREDIT", True, []),
-                ("2221", "应交税费", "YJSF", "负债", "CREDIT", True, []),
-                ("4001", "实收资本", "SSZB", "权益", "CREDIT", True, []),
-                ("6001", "主营业务收入", "ZYYWSR", "损益", "CREDIT", True, []),
-                ("6401", "主营业务成本", "ZYYWCB", "损益", "DEBIT", True, []),
-                ("6602", "管理费用", "GLFY", "损益", "DEBIT", True, []),
-                ("6603", "财务费用", "CWFY", "损益", "DEBIT", False, []),
-                ("660301", "财务费用-手续费", "CWFYSXF", "损益", "DEBIT", True, []),
-                ("660302", "财务费用-利息收入", "CWFYLXSR", "损益", "CREDIT", True, []),
-            ]
-            for code, name, py, cat, d, leaf, aux in seed_accounts:
-                db.add(
-                    ChartOfAccount(
-                        account_set_id=DEFAULT_ACCOUNT_SET_ID,
-                        code=code,
-                        name=name,
-                        pinyin_abbr=py,
-                        level=1 if len(code) == 4 else 2,
-                        category=cat,
-                        balance_direction=d,
-                        is_leaf=leaf,
-                        aux_types=aux,
-                    )
+        elif "示例科技" in bster_set.company_name:
+            bster_set.company_name = "博士特电子科技（昆山）有限公司"
+
+        # 2. 确保昆山宇天独立账套存在
+        yt_set = (
+            await db.execute(select(AccountSet).where(AccountSet.id == YT_ACCOUNT_SET_ID))
+        ).scalar_one_or_none()
+        if not yt_set:
+            db.add(
+                AccountSet(
+                    id=YT_ACCOUNT_SET_ID,
+                    company_name="昆山宇天新能源科技有限公司",
+                    taxpayer_type="GENERAL",
+                    accounting_standard="SMALL_ENT_2013",
+                    start_period="2026-01",
+                    current_period="2026-11",
                 )
+            )
+
+        # 3. 为缺少科目的账套初始化完整科目体系
+        base_seed_accounts = [
+            ("1001", "库存现金", "KCXJ", "资产", "DEBIT", True, []),
+            ("1002", "银行存款", "YHCK", "资产", "DEBIT", False, []),
+            ("100201", "银行存款_宁波银行494642", "YHCKNBYH", "资产", "DEBIT", True, []),
+            ("100208", "银行存款_农商行监管账户7104", "YHCKJGZH", "资产", "DEBIT", True, []),
+            ("100209", "银行存款_农商行城北支行7103", "YHCKCBZH", "资产", "DEBIT", True, []),
+            ("100210", "银行存款_农商行贷款专户10047", "YHCKDKZH", "资产", "DEBIT", True, []),
+            ("100211", "银行存款_宁波银行1502/98005", "YHCK1502", "资产", "DEBIT", True, []),
+            ("100212", "银行存款_宁波银行1446", "YHCK1446", "资产", "DEBIT", True, []),
+            ("100215", "银行存款_农商行6321", "YHCK6321", "资产", "DEBIT", True, []),
+            ("1131", "应收账款", "YSZK", "资产", "DEBIT", False, ["CUSTOMER"]),
+            ("1131_1131036", "应收账款_一般客户", "YSZKYBKH", "资产", "DEBIT", True, ["CUSTOMER"]),
+            ("113213", "预付账款_电费", "YFZKDF", "资产", "DEBIT", True, []),
+            ("113214", "预付账款_水费", "YFZKSF", "资产", "DEBIT", True, []),
+            ("113340", "其他应收款_关联方往来", "QTYSKGLF", "资产", "DEBIT", True, []),
+            ("1405", "库存商品", "KCSP", "资产", "DEBIT", True, []),
+            ("1601", "固定资产", "GDZC", "资产", "DEBIT", True, []),
+            ("2121", "应付账款", "YFZK", "负债", "CREDIT", False, ["VENDOR"]),
+            ("2121_011", "应付账款_一般供应商", "YFZKYBGYS", "负债", "CREDIT", True, ["VENDOR"]),
+            ("2151", "应付职工薪酬", "YFZGXC", "负债", "CREDIT", True, []),
+            ("217115", "应交税费_税费扣缴", "YJSFSFKJ", "负债", "CREDIT", True, []),
+            ("218108", "其他应付款_股东往来", "QTYFKGDWL", "负债", "CREDIT", True, []),
+            ("230102", "长期借款_农商行贷款", "CQJKNSH", "负债", "CREDIT", True, []),
+            ("230103", "长期借款_宁波银行贷款", "CQJKNBYH", "负债", "CREDIT", True, []),
+            ("4001", "实收资本", "SSZB", "权益", "CREDIT", True, []),
+            ("510105", "主营业务收入_光伏发电", "ZYYWSRGF", "损益", "CREDIT", True, []),
+            ("510203", "其他业务收入_停车费", "QTYWSRTC", "损益", "CREDIT", True, []),
+            ("540106", "主营业务成本_垃圾清运", "ZYYWCBLJ", "损益", "DEBIT", True, []),
+            ("550203", "管理费用_办公费", "GLFYBGF", "损益", "DEBIT", True, []),
+            ("550204", "管理费用_差旅费", "GLFYCLF", "损益", "DEBIT", True, []),
+            ("550210", "管理费用_保险费", "GLFYBXF", "损益", "DEBIT", True, []),
+            ("550212", "管理费用_住房公积金", "GLFYGJJ", "损益", "DEBIT", True, []),
+            ("550213", "管理费用_社会保险费", "GLFYSB", "损益", "DEBIT", True, []),
+            ("550220", "管理费用_维修维保费", "GLFYWXF", "损益", "DEBIT", True, []),
+            ("550301", "财务费用_手续费", "CWFYSXF", "损益", "DEBIT", True, []),
+            ("550302", "财务费用_利息收入", "CWFYLXSR", "损益", "CREDIT", True, []),
+            ("550303", "财务费用_利息支出", "CWFYLXZC", "损益", "DEBIT", True, []),
+        ]
+
+        for set_id in (DEFAULT_ACCOUNT_SET_ID, YT_ACCOUNT_SET_ID):
+            existing_codes = set(
+                (
+                    await db.execute(
+                        select(ChartOfAccount.code).where(ChartOfAccount.account_set_id == set_id)
+                    )
+                ).scalars().all()
+            )
+            for code, name, py, cat, d, leaf, aux in base_seed_accounts:
+                if code not in existing_codes:
+                    db.add(
+                        ChartOfAccount(
+                            account_set_id=set_id,
+                            code=code,
+                            name=name,
+                            pinyin_abbr=py,
+                            level=1 if len(code) == 4 else 2,
+                            category=cat,
+                            balance_direction=d,
+                            is_leaf=leaf,
+                            aux_types=aux,
+                        )
+                    )
+
+        # 4. 确保昆山宇天银行账户存在
+        yt_bank = (
+            await db.execute(select(BankAccount).where(BankAccount.id == YT_BANK_ACCOUNT_ID))
+        ).scalar_one_or_none()
+        if not yt_bank:
             db.add(
                 BankAccount(
-                    id=DEFAULT_BANK_ACCOUNT_ID,
-                    account_set_id=DEFAULT_ACCOUNT_SET_ID,
-                    bank_name="招商银行北京分行营业部",
-                    account_no="110908888810101",
+                    id=YT_BANK_ACCOUNT_ID,
+                    account_set_id=YT_ACCOUNT_SET_ID,
+                    bank_name="宁波银行（昆山宇天494642）",
+                    account_no="494642",
                     linked_account_code="100201",
                 )
             )
-            await db.commit()
+
+        # 5. 自动将此前误入博士特账套的宇天未制证流水迁移到宇天独立账套
+        misplaced_yt = (
+            await db.execute(
+                select(BankStatement).where(
+                    BankStatement.account_set_id == DEFAULT_ACCOUNT_SET_ID,
+                    BankStatement.voucher_id.is_(None),
+                )
+            )
+        ).scalars().all()
+        for s in misplaced_yt:
+            src_file = str((s.ai_tags or {}).get("source_file", ""))
+            if "宇天" in src_file or "494642" in src_file or "98005" in src_file:
+                s.account_set_id = YT_ACCOUNT_SET_ID
+                s.bank_account_id = YT_BANK_ACCOUNT_ID
+
+        await db.commit()
 
 
 @app.get("/api/v1/bootstrap")
-async def bootstrap_context(db: AsyncSession = Depends(get_db)):
-    acc_set = (
-        await db.execute(select(AccountSet).where(AccountSet.id == DEFAULT_ACCOUNT_SET_ID))
-    ).scalar_one()
+async def bootstrap_context(account_set_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    all_sets = (
+        await db.execute(select(AccountSet).order_by(AccountSet.id))
+    ).scalars().all()
+    target_id = account_set_id or DEFAULT_ACCOUNT_SET_ID
+    acc_set = next((s for s in all_sets if s.id == target_id), all_sets[0])
+
     accounts = (
         await db.execute(
             select(ChartOfAccount)
-            .where(ChartOfAccount.account_set_id == DEFAULT_ACCOUNT_SET_ID)
+            .where(ChartOfAccount.account_set_id == acc_set.id)
             .order_by(ChartOfAccount.code)
         )
     ).scalars().all()
     bank_accounts = (
         await db.execute(
-            select(BankAccount).where(BankAccount.account_set_id == DEFAULT_ACCOUNT_SET_ID)
+            select(BankAccount).where(BankAccount.account_set_id == acc_set.id)
         )
     ).scalars().all()
     agents = (
         await db.execute(
-            select(ReaAgent).where(ReaAgent.account_set_id == DEFAULT_ACCOUNT_SET_ID)
+            select(ReaAgent).where(ReaAgent.account_set_id == acc_set.id)
         )
     ).scalars().all()
     return {
         "account_set": acc_set,
+        "account_sets": all_sets,
         "accounts": accounts,
         "bank_accounts": bank_accounts,
         "agents": agents,
@@ -409,3 +490,4 @@ if os.path.exists(_frontend_dist):
         if full_path and os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(_frontend_dist, "index.html"))
+
