@@ -138,7 +138,7 @@ export const FinancialReports: React.FC<{
                     title: '资产',
                     dataIndex: 'asset_item',
                     width: 220,
-                    render: (text, r) => <span style={{ fontWeight: r.asset_bold ? 'bold' : 'normal' }}>{text}</span>,
+                    render: (text, r) => <span style={{ fontWeight: (r as any).asset_bold ? 'bold' : 'normal' }}>{text}</span>,
                   },
                   { title: '行次', dataIndex: 'line_no', width: 55, align: 'center' },
                   {
@@ -146,34 +146,34 @@ export const FinancialReports: React.FC<{
                     dataIndex: 'asset_open',
                     width: 145,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.asset_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).asset_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                   {
                     title: '期末数',
                     dataIndex: 'asset_close',
                     width: 145,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.asset_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).asset_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                   {
                     title: '负债和所有者权益',
                     dataIndex: 'liab_item',
                     width: 220,
-                    render: (text, r) => <span style={{ fontWeight: r.liab_bold ? 'bold' : 'normal' }}>{text}</span>,
+                    render: (text, r) => <span style={{ fontWeight: (r as any).liab_bold ? 'bold' : 'normal' }}>{text}</span>,
                   },
                   {
                     title: '年初数',
                     dataIndex: 'liab_open',
                     width: 145,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.liab_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).liab_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                   {
                     title: '期末数',
                     dataIndex: 'liab_close',
                     width: 145,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.liab_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).liab_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                 ]}
               />
@@ -195,7 +195,7 @@ export const FinancialReports: React.FC<{
                     title: '项目',
                     dataIndex: 'item',
                     width: 360,
-                    render: (t, r) => <span style={{ fontWeight: r.is_bold ? 'bold' : 'normal' }}>{t}</span>,
+                    render: (t, r) => <span style={{ fontWeight: (r as any).is_bold ? 'bold' : 'normal' }}>{t}</span>,
                   },
                   { title: '行次', dataIndex: 'line_no', width: 70, align: 'center' },
                   {
@@ -203,14 +203,14 @@ export const FinancialReports: React.FC<{
                     dataIndex: 'month_amount',
                     width: 180,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.is_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).is_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                   {
                     title: '本年累计数',
                     dataIndex: 'ytd_amount',
                     width: 180,
                     align: 'right',
-                    render: (v, r) => <span style={{ fontWeight: r.is_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
+                    render: (v, r) => <span style={{ fontWeight: (r as any).is_bold ? 'bold' : 'normal' }}>{fmtNum(v)}</span>,
                   },
                 ]}
               />
@@ -284,7 +284,7 @@ export const FinancialReports: React.FC<{
                   <Input size="small" style={{ width: 95 }} value={endPeriod} onChange={(e) => setEndPeriod(e.target.value)} />
                 </Space>
                 <Table
-                  rowKey={(r, idx) => `${r.date}-${r.voucher_no}-${idx}`}
+                  rowKey={(r, idx) => `${(r as any).date}-${(r as any).voucher_no}-${idx}`}
                   loading={loading}
                   dataSource={subData?.rows || []}
                   bordered
@@ -332,4 +332,5 @@ export const FinancialReports: React.FC<{
     </Card>
   );
 };
+
 
