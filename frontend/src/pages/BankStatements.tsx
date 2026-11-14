@@ -168,20 +168,6 @@ export const BankStatements: React.FC<{
         dataSource={statements}
         rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
                 size="small"
-        pagination={{
-          defaultPageSize: 30,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '30', '50', '100'],
-          showTotal: (total) => `共 ${total} 条流水`,
-        }}
-        columns={[
-          { title: '凭证日期(月末)', dataIndex: 'tx_date', width: 155 },
-          {
-            title: '方向',
-            dataIndex: 'direction',
-            width: 75,
-            render: (d) => (d === 'IN' ? <Tag color="green">收入</Tag> : <Tag color="volcano">支出</Tag>),
-          },
           {
             title: '发生额',
             dataIndex: 'amount',
@@ -216,21 +202,6 @@ export const BankStatements: React.FC<{
             render: (code, r) => (
               <Select
                         size="small"
-        pagination={{
-          defaultPageSize: 30,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '30', '50', '100'],
-          showTotal: (total) => `共 ${total} 条流水`,
-        }}
-                showSearch
-                optionFilterProp="label"
-                value={code}
-                style={{ width: '100%' }}
-                onChange={(val) => handleSubjectChange(r.id, val)}
-                options={leafAccounts?.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))}
-              />
-            ),
-          },
           {
             title: '凭证状态 / 双向联动',
             width: 150,
@@ -239,27 +210,6 @@ export const BankStatements: React.FC<{
                 <Space>
                   <Tag color="success">{r.voucher_label}</Tag>
                   <Button type="link"         size="small"
-        pagination={{
-          defaultPageSize: 30,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '30', '50', '100'],
-          showTotal: (total) => `共 ${total} 条流水`,
-        }} onClick={() => handleReverseGenerate([r.id])}>
-                    重算
-                  </Button>
-                </Space>
-              ) : (
-                <Button type="link"         size="small"
-        pagination={{
-          defaultPageSize: 30,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '30', '50', '100'],
-          showTotal: (total) => `共 ${total} 条流水`,
-        }} onClick={() => handleReverseGenerate([r.id])}>
-                  立即反向制证
-                </Button>
-              ),
-          },
         ]}
       />
     </Card>
