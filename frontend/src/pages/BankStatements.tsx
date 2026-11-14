@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { Card, Upload, Button, Table, Tag, Select, Switch, Space, message, Tooltip } from 'antd';
 import { UploadOutlined, ThunderboltOutlined, RobotOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
@@ -167,7 +167,7 @@ export const BankStatements: React.FC<{
         loading={loading}
         dataSource={statements}
         rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-        size="small"
+                size="small"
         pagination={{
           defaultPageSize: 30,
           showSizeChanger: true,
@@ -215,7 +215,13 @@ export const BankStatements: React.FC<{
             width: 220,
             render: (code, r) => (
               <Select
-                size="small"
+                        size="small"
+        pagination={{
+          defaultPageSize: 30,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '30', '50', '100'],
+          showTotal: (total) => `共 ${total} 条流水`,
+        }}
                 showSearch
                 optionFilterProp="label"
                 value={code}
@@ -232,12 +238,24 @@ export const BankStatements: React.FC<{
               r.voucher_label ? (
                 <Space>
                   <Tag color="success">{r.voucher_label}</Tag>
-                  <Button type="link" size="small" onClick={() => handleReverseGenerate([r.id])}>
+                  <Button type="link"         size="small"
+        pagination={{
+          defaultPageSize: 30,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '30', '50', '100'],
+          showTotal: (total) => `共 ${total} 条流水`,
+        }} onClick={() => handleReverseGenerate([r.id])}>
                     重算
                   </Button>
                 </Space>
               ) : (
-                <Button type="link" size="small" onClick={() => handleReverseGenerate([r.id])}>
+                <Button type="link"         size="small"
+        pagination={{
+          defaultPageSize: 30,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '30', '50', '100'],
+          showTotal: (total) => `共 ${total} 条流水`,
+        }} onClick={() => handleReverseGenerate([r.id])}>
                   立即反向制证
                 </Button>
               ),
@@ -247,3 +265,9 @@ export const BankStatements: React.FC<{
     </Card>
   );
 };
+
+
+
+
+
+

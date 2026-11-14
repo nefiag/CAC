@@ -1,5 +1,7 @@
 import hashlib
 import json
+import calendar
+from datetime import date
 from decimal import Decimal
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +12,7 @@ from ..models import (
     AccountBalance,
     ReaEvent,
 )
-from ..schemas import VoucherCreate
+from ..schemas import VoucherCreate, VoucherEntryIn
 
 
 def compute_aux_hash(aux_dimensions: dict) -> str:
@@ -178,3 +180,107 @@ async def get_trial_balance(db: AsyncSession, account_set_id: str, period: str) 
             }
         )
     return rows
+
+
+async def carry_forward_pnl(db: AsyncSession, account_set_id: str, period: str) -> Voucher:
+    """期末结转损益：将损益类科目余额结转至本年利润，生成一张平衡的"转"字凭证"""
+    y, m = map(int, period.split("-"))
+    voucher_date = date(y, m, calendar.monthrange(y, m)[1])
+
+    # 幂等保护：本期已存在结转凭证则不再重复生成
+    dup_res = await db.execute(
+        select(VoucherEntry)
+        .join(Voucher, VoucherEntry.voucher_id == Voucher.id)
+        .where(
+            Voucher.account_set_id == account_set_id,
+            Voucher.period == period,
+            Voucher.voucher_word == "转",
+            VoucherEntry.summary == "结转本期损益",
+        )
+    )
+    if dup_res.scalars().first():
+        raise ValueError("本期损益已结转，请勿重复操作")
+
+    # 损益类末级科目当期余额
+    coa_res = await db.execute(
+        select(ChartOfAccount).where(
+            ChartOfAccount.account_set_id == account_set_id,
+            ChartOfAccount.category == "损益",
+            ChartOfAccount.is_leaf == True,  # noqa: E712
+        )
+    )
+    pnl_accounts = coa_res.scalars().all()
+
+    bal_res = await db.execute(
+        select(
+            AccountBalance.account_code,
+            func.sum(AccountBalance.opening_debit).label("od"),
+            func.sum(AccountBalance.opening_credit).label("oc"),
+            func.sum(AccountBalance.period_debit).label("pd"),
+            func.sum(AccountBalance.period_credit).label("pc"),
+        )
+        .where(
+            AccountBalance.account_set_id == account_set_id,
+            AccountBalance.period == period,
+        )
+        .group_by(AccountBalance.account_code)
+    )
+    bal_map = {row.account_code: row for row in bal_res.all()}
+
+    entries_in = []
+    income_total = Decimal("0.00")   # 收入类净贷方（结转时借记）
+    expense_total = Decimal("0.00")  # 费用类净借方（结转时贷记）
+
+    for acc in pnl_accounts:
+        b = bal_map.get(acc.code)
+        if not b:
+            continue
+        net = (b.od or Decimal("0.00")) - (b.oc or Decimal("0.00")) + (b.pd or Decimal("0.00")) - (
+            b.pc or Decimal("0.00")
+        )
+        if abs(net) < Decimal("0.01"):
+            continue
+        if net > 0:
+            # 借方余额（费用）：贷记结转
+            entries_in.append(
+                VoucherEntryIn(summary=f"结转{acc.name}", account_code=acc.code, credit_amount=net)
+            )
+            expense_total += net
+        else:
+            # 贷方余额（收入）：借记结转
+            entries_in.append(
+                VoucherEntryIn(summary=f"结转{acc.name}", account_code=acc.code, debit_amount=-net)
+            )
+            income_total += -net
+
+    net_profit = income_total - expense_total
+    if not entries_in:
+        raise ValueError("当期没有需要结转的损益发生额")
+
+    # 本年利润科目：优先 4103，其次 3131
+    coa_all = (
+        await db.execute(
+            select(ChartOfAccount.code).where(ChartOfAccount.account_set_id == account_set_id)
+        )
+    ).scalars().all()
+    profit_code = "4103" if "4103" in coa_all else "3131"
+
+    if net_profit >= 0:
+        entries_in.append(
+            VoucherEntryIn(summary="结转本期损益", account_code=profit_code, credit_amount=net_profit)
+        )
+    else:
+        entries_in.append(
+            VoucherEntryIn(
+                summary="结转本期损益", account_code=profit_code, debit_amount=-net_profit
+            )
+        )
+
+    payload = VoucherCreate(
+        account_set_id=account_set_id,
+        period=period,
+        voucher_word="转",
+        voucher_date=voucher_date,
+        entries=entries_in,
+    )
+    return await create_voucher(db, payload, rea_event_id=None)

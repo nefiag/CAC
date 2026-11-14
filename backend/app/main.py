@@ -16,7 +16,7 @@ from .models import (
     ReaAgent,
 )
 from .schemas import VoucherCreate, StatementTagUpdate, ReverseVoucherRequest
-from .services.ledger_service import create_voucher, get_trial_balance
+from .services.ledger_service import create_voucher, get_trial_balance, carry_forward_pnl
 from .services.report_service import build_category_summary, build_income_statement, build_balance_sheet, build_subsidiary_ledger, export_financial_statements_excel
 from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch
 from .services.voucher_synthesis import synthesize_vouchers_from_statements
@@ -256,6 +256,20 @@ async def api_list_vouchers(account_set_id: str, period: str, db: AsyncSession =
             }
         )
     return out
+
+
+@app.post("/api/v1/vouchers/carry-forward")
+async def api_carry_forward_pnl(account_set_id: str, period: str, db: AsyncSession = Depends(get_db)):
+    try:
+        v = await carry_forward_pnl(db, account_set_id, period)
+        return {
+            "message": "损益结转凭证生成成功",
+            "voucher_id": v.id,
+            "voucher_word": v.voucher_word,
+            "voucher_no": v.voucher_no,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/v1/reports/trial-balance")
