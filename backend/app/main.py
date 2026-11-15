@@ -253,8 +253,8 @@ async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends
     user = (await db.execute(select(User).where(User.username == payload.username.strip().lower()))).scalar_one_or_none()
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    token, expires = await create_session(user.id)
-    response.set_cookie(SESSION_COOKIE, token, expires=expires, httponly=True, secure=True, samesite="lax", path="/")
+    token, _expires = await create_session(user.id)
+    response.set_cookie(SESSION_COOKIE, token, max_age=7 * 24 * 60 * 60, httponly=True, secure=True, samesite="lax", path="/")
     return _user_dict(user)
 
 
