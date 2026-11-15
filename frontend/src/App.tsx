@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Tabs, Tag, Space, Table, Card, Select, Button, message, Badge, Tooltip } from 'antd';
+import { Layout, Menu, Tabs, Tag, Space, Table, Card, Select, Button, message, Badge, Tooltip, Alert } from 'antd';
 import {
   EditOutlined, BankOutlined, AccountBookOutlined, UnorderedListOutlined,
   BarChartOutlined, SwapOutlined, CalendarOutlined, ThunderboltOutlined,
@@ -78,6 +78,8 @@ function WorkflowHome({ company, period, voucherCount, go }: any) {
 export default function App() {
   const [user, setUser] = useState<any>(undefined);
   const [ctx, setCtx] = useState<any>(null);
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [selectedSetId, setSelectedSetId] = useState(() => localStorage.getItem('ge_account_set_id') || '00000000-0000-0000-0000-000000000001');
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [moduleKey, setModuleKey] = useState('home');
@@ -88,13 +90,27 @@ export default function App() {
   useEffect(() => { api.get('/auth/me').then((r) => setUser(r.data)).catch(() => setUser(null)); }, []);
 
   const loadBootstrap = async (targetSetId?: string) => {
-    const res = await api.get('/bootstrap', { params: { account_set_id: targetSetId || selectedSetId } });
-    setCtx(res.data);
-    if (res.data?.account_set?.id && res.data.account_set.id !== selectedSetId) {
-      localStorage.setItem('ge_account_set_id', res.data.account_set.id);
-      setSelectedSetId(res.data.account_set.id);
+    setBootstrapLoading(true);
+    setBootstrapError('');
+    try {
+      const res = await api.get('/bootstrap', { params: { account_set_id: targetSetId || selectedSetId } });
+      setCtx(res.data);
+      if (res.data?.account_set?.id && res.data.account_set.id !== selectedSetId) {
+        localStorage.setItem('ge_account_set_id', res.data.account_set.id);
+        setSelectedSetId(res.data.account_set.id);
+      }
+      setSelectedPeriod((old) => old || res.data?.account_set?.current_period || dayjs().format('YYYY-MM'));
+    } catch (e: any) {
+      setCtx(null);
+      if (e?.response?.status === 401) {
+        setUser(null);
+        message.warning('登录状态已失效，请重新登录');
+        return;
+      }
+      setBootstrapError(e?.response?.data?.detail || e?.message || '工作台数据加载失败');
+    } finally {
+      setBootstrapLoading(false);
     }
-    setSelectedPeriod((old) => old || res.data?.account_set?.current_period || dayjs().format('YYYY-MM'));
   };
   const loadVouchers = async (setId: string, period: string) => {
     const res = await api.get('/vouchers', { params: { account_set_id: setId, period } });
@@ -139,6 +155,13 @@ export default function App() {
   if (user === undefined) return <div className="app-loading">正在验证登录状态…</div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
   if (user.must_change_password) return <PasswordChange user={user} onChanged={() => setUser({ ...user, must_change_password: false })} />;
+  if (!ctx && bootstrapError) return <div className="app-loading app-load-failed">
+    <Alert type="error" showIcon message="工作台加载失败" description={bootstrapError} />
+    <Space>
+      <Button type="primary" loading={bootstrapLoading} onClick={() => loadBootstrap(selectedSetId)}>重新加载</Button>
+      <Button onClick={() => { setBootstrapError(''); setUser(null); }}>返回登录</Button>
+    </Space>
+  </div>;
   if (!ctx) return <div className="app-loading">正在加载 Coxiaoac 经典工作台…</div>;
   const accountSets = ctx?.account_sets || (ctx?.account_set ? [ctx.account_set] : []);
   const moduleItems = user.role === 'ADMIN' ? [...baseModuleItems, { key: 'users', icon: <UserOutlined />, label: '用户权限' }] : baseModuleItems;

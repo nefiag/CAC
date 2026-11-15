@@ -251,12 +251,14 @@ def _user_dict(user: User, account_set_ids: list[str] | None = None):
 
 
 @app.post("/api/v1/auth/login")
-async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginIn, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.username == payload.username.strip().lower()))).scalar_one_or_none()
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token, _expires = await create_session(user.id)
-    response.set_cookie(SESSION_COOKIE, token, max_age=7 * 24 * 60 * 60, httponly=True, secure=True, samesite="lax", path="/")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+    is_https = forwarded_proto == "https" or (not forwarded_proto and request.url.scheme == "https")
+    response.set_cookie(SESSION_COOKIE, token, max_age=7 * 24 * 60 * 60, httponly=True, secure=is_https, samesite="lax", path="/")
     return _user_dict(user)
 
 
