@@ -26,3 +26,14 @@ button.flow-step:hover { border-color:#2f82aa; background:#f2f9fc; }.flow-step-i
 .status-bar { position:fixed;bottom:0;left:0;right:0;height:25px;background:#e2e7ea;border-top:1px solid #bcc8ce;padding:4px 14px;font-size:12px;color:#586a74;display:flex;gap:28px;z-index:10; }.status-ready { margin-left:auto;color:#318b57; }
 .entry-line { min-height:24px; display:flex;justify-content:space-between;border-bottom:1px dotted #dce2e5; }.pending-content { padding:50px;display:flex;justify-content:center;gap:20px;color:#75858e; }.pending-content > .anticon {font-size:48px;color:#9db0ba;}.pending-content b {font-size:18px;color:#536b77;}.app-loading{padding:60px;text-align:center;color:#427894}.ant-card-head { min-height:42px; }.ant-card-head-title { padding:9px 0; }.ant-table-wrapper .ant-table-thead >tr>th { background:#edf2f4; padding-top:7px;padding-bottom:7px; }
 @media (max-width: 1050px) { .brand-bar{grid-template-columns:210px 1fr auto}.brand-bar .muted,.brand small{display:none}.set-picker{width:220px}.module-nav{overflow-x:auto}.workflow-line{transform:scale(.9)} }
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #edf3f9 0%, #dce8f3 100%);
+}
+.login-card { width: min(420px, 100%); box-shadow: 0 18px 60px rgba(24, 55, 88, .18); }
+.login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.login-brand h3 { margin: 0 !important; }
+.login-brand .brand-mark { width: 52px; height: 52px; font-size: 19px; }

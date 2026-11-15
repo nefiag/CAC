@@ -4,7 +4,7 @@ import {
   EditOutlined, BankOutlined, AccountBookOutlined, UnorderedListOutlined,
   BarChartOutlined, SwapOutlined, CalendarOutlined, ThunderboltOutlined,
   HomeOutlined, SafetyCertificateOutlined, FileSearchOutlined, SettingOutlined,
-  RightOutlined, CheckCircleOutlined, DatabaseOutlined,
+  RightOutlined, CheckCircleOutlined, DatabaseOutlined, UserOutlined, LogoutOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api } from './api';
@@ -15,11 +15,13 @@ import { FinancialReports } from './pages/FinancialReports';
 import { AuxiliaryBalances } from './pages/AuxiliaryBalances';
 import { AccountSettings } from './pages/AccountSettings';
 import { Contracts } from './pages/Contracts';
+import { LoginScreen, PasswordChange } from './pages/LoginScreen';
+import { UserManagement } from './pages/UserManagement';
 import './app.css';
 
 const { Header, Content } = Layout;
 
-const moduleItems = [
+const baseModuleItems = [
   { key: 'home', icon: <HomeOutlined />, label: '业务导航' },
   { key: 'accounting', icon: <EditOutlined />, label: '账务处理' },
   { key: 'reports', icon: <BarChartOutlined />, label: '财务报表' },
@@ -31,7 +33,7 @@ const moduleItems = [
 
 const moduleDefaults: Record<string, string> = {
   home: 'home', accounting: 'voucher_new', reports: 'financial_reports', bank: 'statements',
-  arap: 'arap', contract: 'contract', settings: 'settings',
+  arap: 'arap', contract: 'contract', settings: 'settings', users: 'users',
 };
 
 function buildPeriods(current?: string) {
@@ -74,6 +76,7 @@ function WorkflowHome({ company, period, voucherCount, go }: any) {
 }
 
 export default function App() {
+  const [user, setUser] = useState<any>(undefined);
   const [ctx, setCtx] = useState<any>(null);
   const [selectedSetId, setSelectedSetId] = useState(() => localStorage.getItem('ge_account_set_id') || '00000000-0000-0000-0000-000000000001');
   const [selectedPeriod, setSelectedPeriod] = useState('');
@@ -81,6 +84,8 @@ export default function App() {
   const [activeKey, setActiveKey] = useState('home');
   const [refreshTick, setRefreshTick] = useState(0);
   const [vouchers, setVouchers] = useState<any[]>([]);
+
+  useEffect(() => { api.get('/auth/me').then((r) => setUser(r.data)).catch(() => setUser(null)); }, []);
 
   const loadBootstrap = async (targetSetId?: string) => {
     const res = await api.get('/bootstrap', { params: { account_set_id: targetSetId || selectedSetId } });
@@ -91,7 +96,7 @@ export default function App() {
     const res = await api.get('/vouchers', { params: { account_set_id: setId, period } });
     setVouchers(res.data);
   };
-  useEffect(() => { loadBootstrap(selectedSetId); }, [selectedSetId]);
+  useEffect(() => { if (user && !user.must_change_password) loadBootstrap(selectedSetId); }, [selectedSetId, user]);
   useEffect(() => { if (ctx?.account_set?.id && selectedPeriod) loadVouchers(ctx.account_set.id, selectedPeriod); }, [ctx, selectedPeriod, refreshTick]);
 
   const setId = ctx?.account_set?.id;
@@ -127,8 +132,12 @@ export default function App() {
     } catch (e: any) { message.error(e?.response?.data?.detail || '删除失败'); }
   };
 
+  if (user === undefined) return <div className="app-loading">正在验证登录状态…</div>;
+  if (!user) return <LoginScreen onLogin={setUser} />;
+  if (user.must_change_password) return <PasswordChange user={user} onChanged={() => setUser({ ...user, must_change_password: false })} />;
   if (!ctx) return <div className="app-loading">正在加载 Coxiaoac 经典工作台…</div>;
   const accountSets = ctx?.account_sets || (ctx?.account_set ? [ctx.account_set] : []);
+  const moduleItems = user.role === 'ADMIN' ? [...baseModuleItems, { key: 'users', icon: <UserOutlined />, label: '用户权限' }] : baseModuleItems;
 
   const contentItems = [
     { key: 'home', label: '业务导航', children: <WorkflowHome company={ctx.account_set.company_name} period={selectedPeriod} voucherCount={vouchers.length} go={go} /> },
@@ -157,13 +166,16 @@ export default function App() {
     { key: 'arap', label: '往来核算', children: <AuxiliaryBalances accountSetId={setId} period={selectedPeriod} /> },
     { key: 'contract', label: '合同管理', children: <Contracts accountSetId={setId} /> },
     { key: 'settings', label: '系统设置', children: <AccountSettings accountSetId={setId} /> },
+    ...(user.role === 'ADMIN' ? [{ key: 'users', label: '用户与权限', children: <UserManagement accountSets={accountSets} /> }] : []),
   ];
+
+  const logout = async () => { await api.post('/auth/logout'); setCtx(null); setUser(null); };
 
   return <Layout className="classic-shell">
     <Header className="brand-bar">
       <div className="brand"><span className="brand-mark">CX</span><div><b>Coxiaoac</b><small>经典财务工作台</small></div></div>
       <Space><span className="muted">当前账套</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" options={accountSets.map((s: any) => ({ value: s.id, label: s.company_name }))} /><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
-      <Space><CalendarOutlined /><Select value={selectedPeriod} onChange={setSelectedPeriod} className="period-picker" options={periods.map((p) => ({ value: p, label: p }))} /><Tooltip title="生成本期损益结转凭证"><Button icon={<ThunderboltOutlined />} onClick={handleCarryForwardPnL}>结转损益</Button></Tooltip></Space>
+      <Space><CalendarOutlined /><Select value={selectedPeriod} onChange={setSelectedPeriod} className="period-picker" options={periods.map((p) => ({ value: p, label: p }))} /><Tooltip title="生成本期损益结转凭证"><Button icon={<ThunderboltOutlined />} onClick={handleCarryForwardPnL}>结转损益</Button></Tooltip><Tag icon={<UserOutlined />}>{user.display_name}</Tag><Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></Space>
     </Header>
     <Menu mode="horizontal" selectedKeys={[moduleKey]} onClick={switchModule} items={moduleItems} className="module-nav" />
     <Content className="workspace">

@@ -13,6 +13,7 @@
 - 往来辅助余额、合同台账与收付款计划
 - 账套凭证/显示/备份策略参数
 - 晓会计兼容 Excel 预检、草稿导入、重复跳过及结果报告
+- 密码登录、管理员/会计/只读角色、用户启停及账套访问授权
 
 ## 启动
 
@@ -28,11 +29,11 @@ docker compose up --build
 
 ```bash
 cp .env.production.example .env.production
-# 填写随机数据库密码和 Cloudflare Tunnel Token
+# 填写随机数据库密码、初始管理员密码和 Cloudflare Tunnel Token
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-Cloudflare Tunnel 的 Public Hostname 设置为 `coxiaoa.bstks.cn`，服务地址设置为 `http://frontend:80`。
+Cloudflare Tunnel 的 Public Hostname 设置为 `coxiaoac.bstks.cn`，服务地址设置为 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
 
 ## 验证
 

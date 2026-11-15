@@ -43,6 +43,35 @@ class AccountSetSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class User(Base):
+    __tablename__ = "auth_users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="ACCOUNTANT", index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UserAccountSet(Base):
+    __tablename__ = "auth_user_account_sets"
+    __table_args__ = (UniqueConstraint("user_id", "account_set_id", name="uq_user_account_set"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("auth_users.id", ondelete="CASCADE"), index=True)
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id", ondelete="CASCADE"), index=True)
+
+
+class UserSession(Base):
+    __tablename__ = "auth_user_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("auth_users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Contract(Base):
     __tablename__ = "contracts"
     __table_args__ = (UniqueConstraint("account_set_id", "contract_no", name="uq_contract_no"),)

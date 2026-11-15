@@ -1,4 +1,5 @@
-﻿from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
+﻿from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, Request, Response
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import io
@@ -17,6 +18,9 @@ from .models import (
     AccountSetSetting,
     Contract,
     ContractPlan,
+    User,
+    UserSession,
+    UserAccountSet,
 )
 from .schemas import (VoucherCreate, VoucherStatusUpdate, StatementTagUpdate, ReverseVoucherRequest,
                       AccountSetSettingsUpdate, ContractIn, ContractPlanIn)
@@ -29,8 +33,29 @@ from .services.migration_engine import (
     import_xiaokuaiji_excel,
     inspect_xiaokuaiji_excel,
 )
+from .auth import SESSION_COOKIE, authenticated_user, create_session, hash_password, require_admin, token_hash, verify_password
+from datetime import datetime
+import os
 
 app = FastAPI(title="Coxiaoac API", version="1.0.0")
+
+PUBLIC_API_PATHS = {"/api/v1/auth/login"}
+
+
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path not in PUBLIC_API_PATHS:
+        user = await authenticated_user(request)
+        if not user:
+            return Response(content='{"detail":"请先登录"}', status_code=401, media_type="application/json")
+        request.state.user = user
+        if user.must_change_password and request.url.path not in {"/api/v1/auth/me", "/api/v1/auth/change-password", "/api/v1/auth/logout"}:
+            return Response(content='{"detail":"请先修改初始密码"}', status_code=403, media_type="application/json")
+        if user.role == "VIEWER" and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            return Response(content='{"detail":"只读用户不能修改数据"}', status_code=403, media_type="application/json")
+        if request.url.path.startswith("/api/v1/users") and user.role != "ADMIN":
+            return Response(content='{"detail":"需要系统管理员权限"}', status_code=403, media_type="application/json")
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -181,14 +206,158 @@ async def on_startup():
                 s.account_set_id = YT_ACCOUNT_SET_ID
                 s.bank_account_id = YT_BANK_ACCOUNT_ID
 
+        admin_username = os.getenv("ADMIN_USERNAME", "admin").strip().lower()
+        admin_password = os.getenv("ADMIN_PASSWORD", "")
+        admin = (await db.execute(select(User).where(User.username == admin_username))).scalar_one_or_none()
+        if not admin and admin_password:
+            db.add(User(
+                username=admin_username,
+                display_name="系统管理员",
+                password_hash=hash_password(admin_password),
+                role="ADMIN",
+                is_active=True,
+                must_change_password=True,
+            ))
+
         await db.commit()
 
 
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class UserIn(BaseModel):
+    username: str
+    display_name: str
+    password: str | None = None
+    role: str = "ACCOUNTANT"
+    is_active: bool = True
+    account_set_ids: list[str] = []
+
+
+def _user_dict(user: User, account_set_ids: list[str] | None = None):
+    return {"id": user.id, "username": user.username, "display_name": user.display_name,
+            "role": user.role, "is_active": user.is_active,
+            "must_change_password": user.must_change_password,
+            "account_set_ids": account_set_ids or []}
+
+
+@app.post("/api/v1/auth/login")
+async def login(payload: LoginIn, response: Response, db: AsyncSession = Depends(get_db)):
+    user = (await db.execute(select(User).where(User.username == payload.username.strip().lower()))).scalar_one_or_none()
+    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token, expires = await create_session(user.id)
+    response.set_cookie(SESSION_COOKIE, token, expires=expires, httponly=True, secure=True, samesite="lax", path="/")
+    return _user_dict(user)
+
+
+@app.get("/api/v1/auth/me")
+async def auth_me(request: Request):
+    return _user_dict(request.state.user)
+
+
+@app.post("/api/v1/auth/logout")
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        session = (await db.execute(select(UserSession).where(UserSession.token_hash == token_hash(token)))).scalar_one_or_none()
+        if session:
+            await db.delete(session)
+            await db.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "LOGGED_OUT"}
+
+
+@app.post("/api/v1/auth/change-password")
+async def change_password(payload: PasswordChangeIn, request: Request, db: AsyncSession = Depends(get_db)):
+    user = (await db.execute(select(User).where(User.id == request.state.user.id))).scalar_one()
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="当前密码不正确")
+    try:
+        user.password_hash = hash_password(payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    user.must_change_password = False
+    await db.commit()
+    return {"status": "CHANGED"}
+
+
+@app.get("/api/v1/users")
+async def list_users(request: Request, db: AsyncSession = Depends(get_db)):
+    require_admin(request)
+    users = (await db.execute(select(User).order_by(User.username))).scalars().all()
+    result = []
+    for user in users:
+        grants = (await db.execute(select(UserAccountSet.account_set_id).where(UserAccountSet.user_id == user.id))).scalars().all()
+        result.append(_user_dict(user, list(grants)))
+    return result
+
+
+@app.post("/api/v1/users")
+async def create_user(payload: UserIn, request: Request, db: AsyncSession = Depends(get_db)):
+    require_admin(request)
+    if payload.role not in {"ADMIN", "ACCOUNTANT", "VIEWER"}:
+        raise HTTPException(status_code=400, detail="无效角色")
+    if not payload.password:
+        raise HTTPException(status_code=400, detail="新用户必须设置初始密码")
+    try:
+        user = User(username=payload.username.strip().lower(), display_name=payload.display_name.strip(),
+                    password_hash=hash_password(payload.password), role=payload.role,
+                    is_active=payload.is_active, must_change_password=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.add(user)
+    try:
+        await db.flush()
+        for account_set_id in payload.account_set_ids:
+            db.add(UserAccountSet(user_id=user.id, account_set_id=account_set_id))
+        await db.commit(); await db.refresh(user)
+    except Exception:
+        await db.rollback(); raise HTTPException(status_code=409, detail="用户名已存在或账套无效")
+    return _user_dict(user, payload.account_set_ids)
+
+
+@app.put("/api/v1/users/{user_id}")
+async def update_user(user_id: str, payload: UserIn, request: Request, db: AsyncSession = Depends(get_db)):
+    require_admin(request)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if payload.role not in {"ADMIN", "ACCOUNTANT", "VIEWER"}:
+        raise HTTPException(status_code=400, detail="无效角色")
+    user.display_name = payload.display_name.strip(); user.role = payload.role; user.is_active = payload.is_active
+    if payload.password:
+        try:
+            user.password_hash = hash_password(payload.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        user.must_change_password = True
+    grants = (await db.execute(select(UserAccountSet).where(UserAccountSet.user_id == user_id))).scalars().all()
+    for grant in grants:
+        await db.delete(grant)
+    for account_set_id in payload.account_set_ids:
+        db.add(UserAccountSet(user_id=user_id, account_set_id=account_set_id))
+    await db.commit()
+    return _user_dict(user, payload.account_set_ids)
+
+
 @app.get("/api/v1/bootstrap")
-async def bootstrap_context(account_set_id: str | None = None, db: AsyncSession = Depends(get_db)):
+async def bootstrap_context(request: Request, account_set_id: str | None = None, db: AsyncSession = Depends(get_db)):
     all_sets = (
         await db.execute(select(AccountSet).order_by(AccountSet.id))
     ).scalars().all()
+    if request.state.user.role != "ADMIN":
+        allowed = set((await db.execute(select(UserAccountSet.account_set_id).where(UserAccountSet.user_id == request.state.user.id))).scalars().all())
+        all_sets = [item for item in all_sets if item.id in allowed]
+    if not all_sets:
+        raise HTTPException(status_code=403, detail="当前用户尚未分配账套")
     target_id = account_set_id or DEFAULT_ACCOUNT_SET_ID
     acc_set = next((s for s in all_sets if s.id == target_id), all_sets[0])
 
