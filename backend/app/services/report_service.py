@@ -465,8 +465,10 @@ async def build_subsidiary_ledger(
         else:
             running = round(running + cr - dr, 2)
         rows.append({
+            "voucher_id": v.id,
             "date": str(v.voucher_date),
             "voucher_no": f"{v.voucher_word}-{v.voucher_no}",
+            "voucher_status": v.status,
             "account_code": e.account_code,
             "summary": e.summary,
             "debit": dr,

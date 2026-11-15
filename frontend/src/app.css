@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef1f3; color: #24313c; font-family: "Microsoft YaHei", "Segoe UI", sans-serif; }
+.classic-shell { min-height: 100vh; background: #eef1f3; }
+.brand-bar { height: 58px; padding: 0 18px; background: #fff; border-bottom: 1px solid #ccd5dc; display: grid; grid-template-columns: 260px 1fr auto; align-items: center; line-height: normal; box-shadow: 0 1px 3px rgba(29,54,72,.08); }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 6px; color: #fff; font-weight: 800; background: #24739b; }
+.brand b { display:block; font-size: 16px; color: #1d5878; }.brand small { color:#82919b; }.muted { color:#75848d; }
+.set-picker { width: 270px; }.period-picker { width: 105px; }
+.module-nav { padding-left: 16px; background: linear-gradient(#347fa5, #266d93); color:#fff; border:0; min-height: 43px; }
+.module-nav.ant-menu-horizontal > .ant-menu-item { color: rgba(255,255,255,.88); height:43px; line-height:43px; top:0; border-radius:0; }
+.module-nav.ant-menu-horizontal > .ant-menu-item-selected { color:#174b68; background:#fff; font-weight:600; }
+.module-nav.ant-menu-horizontal > .ant-menu-item::after { display:none; }
+.workspace { margin: 10px 12px 32px; min-width: 900px; }
+.work-tabs > .ant-tabs-nav { margin-bottom: 8px; }.work-tabs > .ant-tabs-nav .ant-tabs-tab { padding: 5px 14px; background:#dfe5e8; border-color:#c5d0d6; }
+.work-tabs > .ant-tabs-nav .ant-tabs-tab-active { background:#fff; }
+.page-caption { height: 44px; padding: 0 16px; display:flex; align-items:center; justify-content:space-between; border:1px solid #ccd6db; border-bottom:0; background:#fff; }
+.page-caption b { font-size:16px; color:#246b90; }.page-caption span { margin-left:18px; color:#788891; }
+.workflow-card { min-height: 470px; display:flex; justify-content:center; border:1px solid #ccd6db; border-radius:0; background:linear-gradient(180deg,#fff,#f8fafb); }
+.workflow-card .ant-card-body { width:100%; padding-top:52px; }.operator-node { text-align:center; color:#50636e; }.round-icon { margin:0 auto 7px; width:48px;height:48px;border:2px solid #6792a9;border-radius:50%;display:grid;place-items:center;font-size:23px;color:#327798; }
+.workflow-line { display:flex; justify-content:center; align-items:center; margin:38px auto; }.flow-arrow { margin:0 18px;color:#9babb3;font-size:20px; }
+button.flow-step { width:145px;height:112px;border:1px solid #b9cbd4;background:#fff;border-radius:4px;cursor:pointer;color:#334c59;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;box-shadow:0 2px 7px rgba(44,82,102,.09); }
+button.flow-step:hover { border-color:#2f82aa; background:#f2f9fc; }.flow-step-icon { color:#267da7;font-size:27px; }.flow-step small { color:#92a0a8; }
+.shortcut-line { display:flex;justify-content:center;gap:14px;border-top:1px solid #e1e7ea;padding-top:28px;max-width:780px;margin:auto; }
+.shortcut-line button { width:150px;border:0;background:transparent;cursor:pointer;color:#526873;display:flex;align-items:center;gap:10px;justify-content:center; }.shortcut-line button:hover { color:#1677a5; }.shortcut-line span { font-size:22px;color:#3884a8; }
+.notice-strip { margin-top:8px;padding:8px 12px;background:#fff;border:1px solid #d2dce1;color:#647680;font-size:12px; }
+.status-bar { position:fixed;bottom:0;left:0;right:0;height:25px;background:#e2e7ea;border-top:1px solid #bcc8ce;padding:4px 14px;font-size:12px;color:#586a74;display:flex;gap:28px;z-index:10; }.status-ready { margin-left:auto;color:#318b57; }
+.entry-line { min-height:24px; display:flex;justify-content:space-between;border-bottom:1px dotted #dce2e5; }.pending-content { padding:50px;display:flex;justify-content:center;gap:20px;color:#75858e; }.pending-content > .anticon {font-size:48px;color:#9db0ba;}.pending-content b {font-size:18px;color:#536b77;}.app-loading{padding:60px;text-align:center;color:#427894}.ant-card-head { min-height:42px; }.ant-card-head-title { padding:9px 0; }.ant-table-wrapper .ant-table-thead >tr>th { background:#edf2f4; padding-top:7px;padding-bottom:7px; }
+@media (max-width: 1050px) { .brand-bar{grid-template-columns:210px 1fr auto}.brand-bar .muted,.brand small{display:none}.set-picker{width:220px}.module-nav{overflow-x:auto}.workflow-line{transform:scale(.9)} }

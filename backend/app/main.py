@@ -14,18 +14,23 @@ from .models import (
     Voucher,
     VoucherEntry,
     ReaAgent,
+    AccountSetSetting,
+    Contract,
+    ContractPlan,
 )
-from .schemas import VoucherCreate, StatementTagUpdate, ReverseVoucherRequest
-from .services.ledger_service import create_voucher, get_trial_balance, carry_forward_pnl
+from .schemas import (VoucherCreate, VoucherStatusUpdate, StatementTagUpdate, ReverseVoucherRequest,
+                      AccountSetSettingsUpdate, ContractIn, ContractPlanIn)
+from .services.ledger_service import create_voucher, transition_voucher, get_trial_balance, carry_forward_pnl
 from .services.report_service import build_category_summary, build_income_statement, build_balance_sheet, build_subsidiary_ledger, export_financial_statements_excel
 from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch
 from .services.voucher_synthesis import synthesize_vouchers_from_statements
 from .services.migration_engine import (
     export_xiaokuaiji_compatible_excel,
     import_xiaokuaiji_excel,
+    inspect_xiaokuaiji_excel,
 )
 
-app = FastAPI(title="GeAccounting API", version="1.0.0")
+app = FastAPI(title="Coxiaoac API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -258,6 +263,36 @@ async def api_list_vouchers(account_set_id: str, period: str, db: AsyncSession =
     return out
 
 
+@app.patch("/api/v1/vouchers/{voucher_id}/status")
+async def api_transition_voucher(
+    voucher_id: str, payload: VoucherStatusUpdate, db: AsyncSession = Depends(get_db)
+):
+    voucher = (
+        await db.execute(select(Voucher).where(Voucher.id == voucher_id))
+    ).scalar_one_or_none()
+    if not voucher:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    try:
+        updated = await transition_voucher(db, voucher, payload.action)
+        return {"id": updated.id, "status": updated.status}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.delete("/api/v1/vouchers/{voucher_id}")
+async def api_delete_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)):
+    voucher = (
+        await db.execute(select(Voucher).where(Voucher.id == voucher_id))
+    ).scalar_one_or_none()
+    if not voucher:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    if voucher.status != "DRAFT":
+        raise HTTPException(status_code=409, detail="只有草稿凭证可以删除")
+    await db.delete(voucher)
+    await db.commit()
+    return {"status": "DELETED"}
+
+
 @app.post("/api/v1/vouchers/carry-forward")
 async def api_carry_forward_pnl(account_set_id: str, period: str, db: AsyncSession = Depends(get_db)):
     try:
@@ -405,6 +440,11 @@ async def api_import_xiaokuaiji(
 ):
     content = await file.read()
     return await import_xiaokuaiji_excel(db, account_set_id, content)
+
+
+@app.post("/api/v1/migration/inspect-xiaokuaiji")
+async def api_inspect_xiaokuaiji(file: UploadFile = File(...)):
+    return inspect_xiaokuaiji_excel(await file.read())
 @app.post("/api/v1/statements/import-batch")
 async def api_import_statements_batch(
     account_set_id: str = Form(...),
@@ -469,6 +509,51 @@ async def api_subsidiary_ledger(
     return await build_subsidiary_ledger(db, account_set_id, account_code, start_period, end_period)
 
 
+@app.get("/api/v1/reports/auxiliary-balances")
+async def api_auxiliary_balances(
+    account_set_id: str, end_period: str, db: AsyncSession = Depends(get_db)
+):
+    """按凭证分录辅助维度汇总往来余额，仅统计已记账凭证。"""
+    agents = (
+        await db.execute(select(ReaAgent).where(ReaAgent.account_set_id == account_set_id))
+    ).scalars().all()
+    agent_map = {a.id: a for a in agents}
+    rows = (
+        await db.execute(
+            select(VoucherEntry, Voucher)
+            .join(Voucher, VoucherEntry.voucher_id == Voucher.id)
+            .where(
+                Voucher.account_set_id == account_set_id,
+                Voucher.period <= end_period,
+                Voucher.status == "POSTED",
+            )
+        )
+    ).all()
+    totals = {}
+    for entry, voucher in rows:
+        for dimension, agent_id in (entry.aux_dimensions or {}).items():
+            key = (dimension, str(agent_id), entry.account_code)
+            item = totals.setdefault(key, {"debit": 0.0, "credit": 0.0, "last_date": ""})
+            item["debit"] += float(entry.debit_amount)
+            item["credit"] += float(entry.credit_amount)
+            item["last_date"] = max(item["last_date"], str(voucher.voucher_date))
+    result = []
+    for (dimension, agent_id, account_code), values in totals.items():
+        agent = agent_map.get(agent_id)
+        net = round(values["debit"] - values["credit"], 2)
+        result.append({
+            "dimension": dimension,
+            "agent_id": agent_id,
+            "agent_code": agent.code if agent else "",
+            "agent_name": agent.name if agent else agent_id,
+            "account_code": account_code,
+            "debit_balance": net if net > 0 else 0.0,
+            "credit_balance": -net if net < 0 else 0.0,
+            "last_date": values["last_date"],
+        })
+    return sorted(result, key=lambda x: (x["dimension"], x["agent_name"], x["account_code"]))
+
+
 @app.get("/api/v1/reports/export-financial-excel")
 async def api_export_financial_excel(
     account_set_id: str,
@@ -482,6 +567,85 @@ async def api_export_financial_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=financial_statements_{period}.xlsx"},
     )
+
+
+@app.get("/api/v1/account-set-settings")
+async def api_get_settings(account_set_id: str, db: AsyncSession = Depends(get_db)):
+    row = (await db.execute(select(AccountSetSetting).where(AccountSetSetting.account_set_id == account_set_id))).scalar_one_or_none()
+    return {
+        "voucher_rules": row.voucher_rules if row else {"allow_manual_no": False, "require_audit": True, "auto_next": True, "number_by_month": True},
+        "display_rules": row.display_rules if row else {"show_aux_tip": True, "dense_tables": True},
+        "backup_rules": row.backup_rules if row else {"enabled": False, "interval_days": 7},
+    }
+
+
+@app.put("/api/v1/account-set-settings")
+async def api_put_settings(account_set_id: str, payload: AccountSetSettingsUpdate, db: AsyncSession = Depends(get_db)):
+    row = (await db.execute(select(AccountSetSetting).where(AccountSetSetting.account_set_id == account_set_id))).scalar_one_or_none()
+    if not row:
+        row = AccountSetSetting(account_set_id=account_set_id)
+        db.add(row)
+    row.voucher_rules = payload.voucher_rules
+    row.display_rules = payload.display_rules
+    row.backup_rules = payload.backup_rules
+    await db.commit()
+    return {"status": "SAVED"}
+
+
+def _contract_dict(c, plans):
+    settled = sum(float(p.settled_amount) for p in plans)
+    return {"id": c.id, "contract_no": c.contract_no, "name": c.name,
+            "counterparty_name": c.counterparty_name, "direction": c.direction,
+            "amount": float(c.amount), "start_date": str(c.start_date) if c.start_date else None,
+            "end_date": str(c.end_date) if c.end_date else None, "status": c.status,
+            "note": c.note, "settled_amount": settled,
+            "plans": [{"id": p.id, "due_date": str(p.due_date), "amount": float(p.amount),
+                       "settled_amount": float(p.settled_amount), "note": p.note} for p in plans]}
+
+
+@app.get("/api/v1/contracts")
+async def api_list_contracts(account_set_id: str, db: AsyncSession = Depends(get_db)):
+    contracts = (await db.execute(select(Contract).where(Contract.account_set_id == account_set_id).order_by(Contract.contract_no))).scalars().all()
+    result = []
+    for c in contracts:
+        plans = (await db.execute(select(ContractPlan).where(ContractPlan.contract_id == c.id).order_by(ContractPlan.due_date))).scalars().all()
+        result.append(_contract_dict(c, plans))
+    return result
+
+
+@app.post("/api/v1/contracts")
+async def api_create_contract(payload: ContractIn, db: AsyncSession = Depends(get_db)):
+    if payload.direction not in {"RECEIVABLE", "PAYABLE"} or payload.amount < 0:
+        raise HTTPException(status_code=400, detail="合同方向或金额无效")
+    row = Contract(**payload.model_dump())
+    db.add(row)
+    try:
+        await db.commit(); await db.refresh(row)
+    except Exception:
+        await db.rollback(); raise HTTPException(status_code=409, detail="合同编号已存在")
+    return _contract_dict(row, [])
+
+
+@app.post("/api/v1/contracts/{contract_id}/plans")
+async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, db: AsyncSession = Depends(get_db)):
+    contract = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
+    if not contract: raise HTTPException(status_code=404, detail="合同不存在")
+    if payload.amount <= 0 or payload.settled_amount < 0 or payload.settled_amount > payload.amount:
+        raise HTTPException(status_code=400, detail="计划金额或已结金额无效")
+    existing = (await db.execute(select(ContractPlan).where(ContractPlan.contract_id == contract_id))).scalars().all()
+    if sum(float(p.amount) for p in existing) + float(payload.amount) > float(contract.amount) + 0.001:
+        raise HTTPException(status_code=409, detail="收付款计划合计不能超过合同金额")
+    row = ContractPlan(contract_id=contract_id, **payload.model_dump())
+    db.add(row); await db.commit(); await db.refresh(row)
+    return {"id": row.id}
+
+
+@app.delete("/api/v1/contracts/{contract_id}")
+async def api_delete_contract(contract_id: str, db: AsyncSession = Depends(get_db)):
+    row = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
+    if not row: raise HTTPException(status_code=404, detail="合同不存在")
+    await db.delete(row); await db.commit()
+    return {"status": "DELETED"}
 
 
 import os
@@ -504,4 +668,3 @@ if os.path.exists(_frontend_dist):
         if full_path and os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(_frontend_dist, "index.html"))
-

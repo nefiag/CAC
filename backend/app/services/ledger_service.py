@@ -51,6 +51,9 @@ async def create_voucher(
         await db.flush()
         rea_event_id = event.id
 
+    if payload.status not in {"DRAFT", "AUDITED", "POSTED"}:
+        raise ValueError("凭证初始状态必须为 DRAFT、AUDITED 或 POSTED")
+
     voucher = Voucher(
         account_set_id=payload.account_set_id,
         period=payload.period,
@@ -58,7 +61,7 @@ async def create_voucher(
         voucher_no=next_no,
         voucher_date=payload.voucher_date,
         attachment_count=payload.attachment_count,
-        status="POSTED",
+        status=payload.status,
         rea_event_id=rea_event_id,
     )
     db.add(voucher)
@@ -77,16 +80,43 @@ async def create_voucher(
             aux_hash=aux_hash,
         )
         db.add(entry)
-        await _update_account_balance(
-            db,
-            payload.account_set_id,
-            payload.period,
-            item.account_code,
-            aux_hash,
-            item.debit_amount,
-            item.credit_amount,
-        )
+        if payload.status == "POSTED":
+            await _update_account_balance(
+                db, payload.account_set_id, payload.period, item.account_code,
+                aux_hash, item.debit_amount, item.credit_amount,
+            )
 
+    await db.commit()
+    await db.refresh(voucher)
+    return voucher
+
+
+async def transition_voucher(db: AsyncSession, voucher: Voucher, action: str) -> Voucher:
+    transitions = {
+        ("DRAFT", "AUDIT"): "AUDITED",
+        ("AUDITED", "UNAUDIT"): "DRAFT",
+        ("AUDITED", "POST"): "POSTED",
+        ("POSTED", "UNPOST"): "AUDITED",
+    }
+    target = transitions.get((voucher.status, action.upper()))
+    if not target:
+        labels = {"DRAFT": "草稿", "AUDITED": "已审核", "POSTED": "已记账"}
+        raise ValueError(f"{labels.get(voucher.status, voucher.status)}状态不能执行此操作")
+
+    entries = (
+        await db.execute(
+            select(VoucherEntry).where(VoucherEntry.voucher_id == voucher.id)
+            .order_by(VoucherEntry.line_no)
+        )
+    ).scalars().all()
+    if action.upper() in {"POST", "UNPOST"}:
+        sign = Decimal("1.00") if action.upper() == "POST" else Decimal("-1.00")
+        for entry in entries:
+            await _update_account_balance(
+                db, voucher.account_set_id, voucher.period, entry.account_code,
+                entry.aux_hash, entry.debit_amount * sign, entry.credit_amount * sign,
+            )
+    voucher.status = target
     await db.commit()
     await db.refresh(voucher)
     return voucher

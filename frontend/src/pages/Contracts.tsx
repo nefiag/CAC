@@ -1,0 +1,20 @@
+import React, { useEffect, useState } from 'react';
+import { Button, Card, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { api } from '../api';
+
+export const Contracts: React.FC<{ accountSetId: string }> = ({ accountSetId }) => {
+  const [rows,setRows]=useState<any[]>([]); const [loading,setLoading]=useState(false); const [open,setOpen]=useState(false); const [planFor,setPlanFor]=useState<any>(null); const [form]=Form.useForm(); const [planForm]=Form.useForm();
+  const load=async()=>{setLoading(true);try{setRows((await api.get('/contracts',{params:{account_set_id:accountSetId}})).data)}finally{setLoading(false)}};
+  useEffect(()=>{load()},[accountSetId]);
+  const create=async()=>{const v=await form.validateFields();await api.post('/contracts',{...v,account_set_id:accountSetId,start_date:v.start_date?.format('YYYY-MM-DD'),end_date:v.end_date?.format('YYYY-MM-DD')});message.success('合同已建立');setOpen(false);form.resetFields();load()};
+  const addPlan=async()=>{const v=await planForm.validateFields();await api.post(`/contracts/${planFor.id}/plans`,{...v,due_date:v.due_date.format('YYYY-MM-DD')});message.success('收付款计划已增加');setPlanFor(null);planForm.resetFields();load()};
+  const remove=async(id:string)=>{await api.delete(`/contracts/${id}`);message.success('合同已删除');load()};
+  return <Card title="合同台账" extra={<Button type="primary" icon={<PlusOutlined/>} onClick={()=>setOpen(true)}>新增合同</Button>}>
+    <Table rowKey="id" loading={loading} dataSource={rows} bordered size="small" expandable={{expandedRowRender:r=><Table rowKey="id" pagination={false} size="small" dataSource={r.plans} columns={[{title:'计划日期',dataIndex:'due_date'},{title:'计划金额',dataIndex:'amount',render:(v)=>Number(v).toFixed(2)},{title:'已结金额',dataIndex:'settled_amount',render:(v)=>Number(v).toFixed(2)},{title:'备注',dataIndex:'note'}]}/>}} columns={[
+      {title:'合同编号',dataIndex:'contract_no',width:120},{title:'合同名称',dataIndex:'name'},{title:'对方单位',dataIndex:'counterparty_name'},{title:'方向',dataIndex:'direction',width:90,render:v=><Tag color={v==='RECEIVABLE'?'blue':'orange'}>{v==='RECEIVABLE'?'收款':'付款'}</Tag>},{title:'合同金额',dataIndex:'amount',align:'right',render:v=>Number(v).toFixed(2)},{title:'已结金额',dataIndex:'settled_amount',align:'right',render:v=>Number(v).toFixed(2)},{title:'操作',width:170,render:(_,r)=><Space><Button size="small" onClick={()=>setPlanFor(r)}>收付款计划</Button><Popconfirm title="确定删除合同及其计划？" onConfirm={()=>remove(r.id)}><Button size="small" danger icon={<DeleteOutlined/>}/></Popconfirm></Space>}
+    ]}/>
+    <Modal open={open} title="新增合同" onCancel={()=>setOpen(false)} onOk={create}><Form form={form} layout="vertical" initialValues={{direction:'RECEIVABLE',amount:0}}><Form.Item name="contract_no" label="合同编号" rules={[{required:true}]}><Input/></Form.Item><Form.Item name="name" label="合同名称" rules={[{required:true}]}><Input/></Form.Item><Form.Item name="counterparty_name" label="对方单位"><Input/></Form.Item><Space><Form.Item name="direction" label="方向"><Select style={{width:120}} options={[{value:'RECEIVABLE',label:'收款合同'},{value:'PAYABLE',label:'付款合同'}]}/></Form.Item><Form.Item name="amount" label="合同金额"><InputNumber min={0} precision={2}/></Form.Item></Space><Space><Form.Item name="start_date" label="开始日期"><DatePicker/></Form.Item><Form.Item name="end_date" label="结束日期"><DatePicker/></Form.Item></Space><Form.Item name="note" label="备注"><Input.TextArea/></Form.Item></Form></Modal>
+    <Modal open={!!planFor} title={`收付款计划 · ${planFor?.contract_no||''}`} onCancel={()=>setPlanFor(null)} onOk={addPlan}><Form form={planForm} layout="vertical" initialValues={{amount:0,settled_amount:0}}><Form.Item name="due_date" label="计划日期" rules={[{required:true}]}><DatePicker/></Form.Item><Form.Item name="amount" label="计划金额" rules={[{required:true}]}><InputNumber min={0.01} precision={2}/></Form.Item><Form.Item name="settled_amount" label="已结金额"><InputNumber min={0} precision={2}/></Form.Item><Form.Item name="note" label="备注"><Input/></Form.Item></Form></Modal>
+  </Card>;
+};

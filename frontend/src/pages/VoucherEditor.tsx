@@ -10,19 +10,24 @@ interface EntryRow {
   account_code: string;
   debit_amount: number;
   credit_amount: number;
+  aux_dimensions: Record<string, string>;
 }
 
 export const VoucherEditor: React.FC<{
   accountSetId: string;
   period: string;
   accounts: any[];
+  agents?: any[];
   onSaved: () => void;
-}> = ({ accountSetId, period, accounts, onSaved }) => {
+}> = ({ accountSetId, period, accounts, agents = [], onSaved }) => {
   const [voucherWord, setVoucherWord] = useState('记');
-  const [voucherDate, setVoucherDate] = useState(dayjs('2026-11-13'));
+  const [voucherDate, setVoucherDate] = useState(() => {
+    const today = dayjs();
+    return today.format('YYYY-MM') === period ? today : dayjs(`${period}-01`).endOf('month');
+  });
   const [rows, setRows] = useState<EntryRow[]>([
-    { key: '1', summary: '', account_code: '', debit_amount: 0, credit_amount: 0 },
-    { key: '2', summary: '', account_code: '', debit_amount: 0, credit_amount: 0 },
+    { key: '1', summary: '', account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} },
+    { key: '2', summary: '', account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} },
   ]);
   const [saving, setSaving] = useState(false);
 
@@ -35,6 +40,13 @@ export const VoucherEditor: React.FC<{
     next[idx] = { ...next[idx], [field]: val };
     if (field === 'debit_amount' && Number(val) > 0) next[idx].credit_amount = 0;
     if (field === 'credit_amount' && Number(val) > 0) next[idx].debit_amount = 0;
+    if (field === 'account_code') next[idx].aux_dimensions = {};
+    setRows(next);
+  };
+
+  const updateAux = (idx: number, type: string, val: string) => {
+    const next = [...rows];
+    next[idx] = { ...next[idx], aux_dimensions: { ...next[idx].aux_dimensions, [type]: val } };
     setRows(next);
   };
 
@@ -62,7 +74,7 @@ export const VoucherEditor: React.FC<{
       next[idx].credit_amount = d;
       setRows(next);
     } else if (e.key === 'Enter' && idx === rows?.length - 1) {
-      setRows([...rows, { key: String(Date.now()), summary: rows[idx].summary, account_code: '', debit_amount: 0, credit_amount: 0 }]);
+      setRows([...rows, { key: String(Date.now()), summary: rows[idx].summary, account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} }]);
     }
   };
 
@@ -76,6 +88,11 @@ export const VoucherEditor: React.FC<{
       message.error(`借贷不平衡！借方合计 ${totalDebit.toFixed(2)}，贷方合计 ${totalCredit.toFixed(2)}`);
       return;
     }
+    const missingAux = validEntries.find((row) => {
+      const account = leafAccounts.find((a) => a.code === row.account_code);
+      return (account?.aux_types || []).some((type: string) => !row.aux_dimensions[type]);
+    });
+    if (missingAux) { message.warning(`科目 ${missingAux.account_code} 需要填写辅助核算项目`); return; }
     setSaving(true);
     try {
       const res = await api.post('/vouchers', {
@@ -83,17 +100,19 @@ export const VoucherEditor: React.FC<{
         period,
         voucher_word: voucherWord,
         voucher_date: voucherDate.format('YYYY-MM-DD'),
+        status: 'DRAFT',
         entries: validEntries?.map((e) => ({
           summary: e.summary || '日常业务记账',
           account_code: e.account_code,
           debit_amount: e.debit_amount,
           credit_amount: e.credit_amount,
+          aux_dimensions: e.aux_dimensions,
         })),
       });
-      message.success(`凭证 [${res.data.voucher_word}-${res.data.voucher_no}] 保存并过账成功！`);
+      message.success(`凭证 [${res.data.voucher_word}-${res.data.voucher_no}] 已保存为草稿，请审核后记账`);
       setRows([
-        { key: String(Date.now() + 1), summary: '', account_code: '', debit_amount: 0, credit_amount: 0 },
-        { key: String(Date.now() + 2), summary: '', account_code: '', debit_amount: 0, credit_amount: 0 },
+        { key: String(Date.now() + 1), summary: '', account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} },
+        { key: String(Date.now() + 2), summary: '', account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} },
       ]);
       onSaved();
     } catch (err: any) {
@@ -105,9 +124,10 @@ export const VoucherEditor: React.FC<{
 
   return (
     <Card
+      className="voucher-editor"
       title={
         <Space>
-          <span>记账凭证录入</span>
+          <span>记账凭证</span>
           <Tag color="blue">快捷键提示：金额框按 "=" 一键找平借贷差额 | 按 "空格" 切换借贷方向</Tag>
         </Space>
       }
@@ -135,7 +155,7 @@ export const VoucherEditor: React.FC<{
           {
             title: '摘要',
             dataIndex: 'summary',
-            width: '28%',
+            width: '22%',
             render: (val, _, idx) => (
               <Input
                 value={val}
@@ -147,7 +167,7 @@ export const VoucherEditor: React.FC<{
           {
             title: '会计科目（支持编码/名称/拼音首字母）',
             dataIndex: 'account_code',
-            width: '34%',
+            width: '28%',
             render: (val, _, idx) => (
               <Select
                 showSearch
@@ -167,9 +187,24 @@ export const VoucherEditor: React.FC<{
             ),
           },
           {
+            title: '辅助核算',
+            width: '18%',
+            render: (_, row, idx) => {
+              const account = leafAccounts.find((a) => a.code === row.account_code);
+              const types: string[] = account?.aux_types || [];
+              if (!types.length) return <span style={{ color: '#a5afb5' }}>—</span>;
+              return <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                {types.map((type) => <Select key={type} showSearch size="small" value={row.aux_dimensions[type] || undefined}
+                  placeholder={type === 'CUSTOMER' ? '选择客户' : type === 'VENDOR' ? '选择供应商' : `选择${type}`}
+                  onChange={(v) => updateAux(idx, type, v)} style={{ width: '100%' }}
+                  options={agents.filter((a) => !a.agent_type || a.agent_type === type).map((a) => ({ value: a.id, label: `${a.code || ''} ${a.name}`.trim() }))} />)}
+              </Space>;
+            },
+          },
+          {
             title: '借方金额',
             dataIndex: 'debit_amount',
-            width: '16%',
+            width: '13%',
             render: (val, _, idx) => (
               <InputNumber
                 value={val}
@@ -183,7 +218,7 @@ export const VoucherEditor: React.FC<{
           {
             title: '贷方金额',
             dataIndex: 'credit_amount',
-            width: '16%',
+            width: '13%',
             render: (val, _, idx) => (
               <InputNumber
                 value={val}
@@ -216,7 +251,7 @@ export const VoucherEditor: React.FC<{
                 size="small"
                 icon={<PlusOutlined />}
                 onClick={() =>
-                  setRows([...rows, { key: String(Date.now()), summary: '', account_code: '', debit_amount: 0, credit_amount: 0 }])
+                  setRows([...rows, { key: String(Date.now()), summary: '', account_code: '', debit_amount: 0, credit_amount: 0, aux_dimensions: {} }])
                 }
               >
                 增行
@@ -224,13 +259,13 @@ export const VoucherEditor: React.FC<{
               <Divider type="vertical" />
               <span>合计（人民币）：</span>
             </Table.Summary.Cell>
-            <Table.Summary.Cell index={2}>{totalDebit.toFixed(2)}</Table.Summary.Cell>
-            <Table.Summary.Cell index={3}>{totalCredit.toFixed(2)}</Table.Summary.Cell>
-            <Table.Summary.Cell index={4} />
+            <Table.Summary.Cell index={2} />
+            <Table.Summary.Cell index={3}>{totalDebit.toFixed(2)}</Table.Summary.Cell>
+            <Table.Summary.Cell index={4}>{totalCredit.toFixed(2)}</Table.Summary.Cell>
+            <Table.Summary.Cell index={5} />
           </Table.Summary.Row>
         )}
       />
     </Card>
   );
 };
-

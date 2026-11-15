@@ -124,6 +124,7 @@ def _call_gemini_generate(parts: List[Dict[str, Any]], timeout: int = 90) -> Any
 
 
 def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: str) -> List[Dict[str, Any]]:
+    file_set_id = _detect_company_set_id(filename, "", "")
     """多模态视觉兜底通道：直接将 PDF 字节流送入 Gemini 2.5 Flash 视觉解析表格"""
     prompt = (
         "你是资深中国企业会计与银行对账单视觉解析专家。请仔细查看这份银行对账单 PDF 的视觉表格，"
@@ -175,7 +176,8 @@ def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: st
         vision_rows.append({
             "source_file": filename,
             "row_idx": idx,
-            "bank_code": file_bank_code,`n                            "target_set_id": file_set_id,
+            "bank_code": file_bank_code,
+            "target_set_id": file_set_id,
             "tx_date": tx_d,
             "direction": direction,
             "amount": abs(amt),
@@ -207,7 +209,8 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
         top_meta = " ".join(str(x) for x in df_raw.iloc[:header_idx].values.flatten() if pd.notna(x))
         df = df_raw.iloc[header_idx + 1:].copy()
         df.columns = [str(c).strip() for c in df_raw.iloc[header_idx].tolist()]
-        file_bank_code = _detect_account_code(filename, f"{top_meta} {' '.join(df.columns)}", fallback_code)`n        file_set_id = _detect_company_set_id(filename, f"{top_meta} {' '.join(df.columns)}", "")
+        file_bank_code = _detect_account_code(filename, f"{top_meta} {' '.join(df.columns)}", fallback_code)
+        file_set_id = _detect_company_set_id(filename, f"{top_meta} {' '.join(df.columns)}", "")
 
         for idx, r in df.iterrows():
             tx_d = _parse_date(r.get("交易日期") or r.get("日期") or r.get("交易时间") or r.get("记账日期"))
@@ -251,7 +254,8 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
             rows.append({
                 "source_file": filename,
                 "row_idx": idx,
-                "bank_code": bank_code,`n                "target_set_id": _detect_company_set_id(filename, row_acct_hint, file_set_id),
+                "bank_code": bank_code,
+                "target_set_id": _detect_company_set_id(filename, row_acct_hint, file_set_id),
                 "tx_date": tx_d,
                 "direction": direction,
                 "amount": round(amt, 2),
@@ -267,7 +271,8 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             head_text = "\n".join(p.extract_text() or "" for p in pdf.pages[:2])
             extracted_chars = len(head_text.strip())
-            file_bank_code = _detect_account_code(filename, head_text[:800], fallback_code)`n            file_set_id = _detect_company_set_id(filename, head_text[:800], "")
+            file_bank_code = _detect_account_code(filename, head_text[:800], fallback_code)
+            file_set_id = _detect_company_set_id(filename, head_text[:800], "")
             for p_idx, page in enumerate(pdf.pages):
                 for t_idx, tb in enumerate(page.extract_tables() or []):
                     for r_idx, line in enumerate(tb):
@@ -297,7 +302,8 @@ def _extract_rows(file_bytes: bytes, filename: str, fallback_code: str) -> List[
                         rows.append({
                             "source_file": filename,
                             "row_idx": p_idx * 10000 + t_idx * 100 + r_idx,
-                            "bank_code": file_bank_code,`n                            "target_set_id": file_set_id,
+                            "bank_code": file_bank_code,
+                            "target_set_id": file_set_id,
                             "tx_date": tx_d,
                             "direction": direction,
                             "amount": round(nums[0], 2),
@@ -439,7 +445,8 @@ async def ingest_bank_statement_batch(
                 dedup_skipped += 1
                 continue
 
-        row_set_id = r.get("target_set_id") or account_set_id`n        fp_raw = f"{row_set_id}|{current_bank_code}|{tx_d.isoformat()}|{direction}|{amt:.2f}|{cp}|{cp_acct}|{raw_sum}"
+        row_set_id = r.get("target_set_id") or account_set_id
+        fp_raw = f"{row_set_id}|{current_bank_code}|{tx_d.isoformat()}|{direction}|{amt:.2f}|{cp}|{cp_acct}|{raw_sum}"
         fp = hashlib.sha256(fp_raw.encode("utf-8")).hexdigest()
         if fp in seen_batch_fps:
             dedup_skipped += 1
@@ -664,4 +671,3 @@ async def ingest_bank_statement_file(
         files=[(filename, content)],
     )
     return res["statements"]
-

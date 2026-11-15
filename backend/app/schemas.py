@@ -18,7 +18,38 @@ class VoucherCreate(BaseModel):
     voucher_word: str = "记"
     voucher_date: date
     attachment_count: int = 0
+    status: str = "POSTED"
     entries: List[VoucherEntryIn]
+
+
+class VoucherStatusUpdate(BaseModel):
+    action: str
+
+
+class AccountSetSettingsUpdate(BaseModel):
+    voucher_rules: Dict[str, Any] = Field(default_factory=dict)
+    display_rules: Dict[str, Any] = Field(default_factory=dict)
+    backup_rules: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContractIn(BaseModel):
+    account_set_id: str
+    contract_no: str
+    name: str
+    counterparty_name: str = ""
+    direction: str = "RECEIVABLE"
+    amount: Decimal = Decimal("0.00")
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: str = "ACTIVE"
+    note: str = ""
+
+
+class ContractPlanIn(BaseModel):
+    due_date: date
+    amount: Decimal
+    settled_amount: Decimal = Decimal("0.00")
+    note: str = ""
 
 
 class StatementTagUpdate(BaseModel):

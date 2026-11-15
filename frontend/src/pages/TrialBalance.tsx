@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Tag, Upload, message } from 'antd';
+import { Card, Table, Button, Space, Tag, Upload, message, Modal } from 'antd';
 import { DownloadOutlined, UploadOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
 
@@ -8,9 +8,12 @@ export const TrialBalance: React.FC<{
   period: string;
   refreshKey: number;
   onRefreshBootstrap: () => void;
-}> = ({ accountSetId, period, refreshKey, onRefreshBootstrap }) => {
+  onOpenVoucher?: (voucherId: string) => void;
+}> = ({ accountSetId, period, refreshKey, onRefreshBootstrap, onOpenVoucher }) => {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [ledger, setLedger] = useState<any>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -22,16 +25,39 @@ export const TrialBalance: React.FC<{
     }
   };
 
+  const openLedger = async (row: any) => {
+    setLedgerLoading(true);
+    setLedger({ account_code: row.code, account_name: row.name, rows: [] });
+    try {
+      const res = await api.get('/reports/subsidiary-ledger', {
+        params: { account_set_id: accountSetId, account_code: row.code, start_period: period, end_period: period },
+      });
+      setLedger(res.data);
+    } catch { message.error('明细分类账加载失败'); }
+    finally { setLedgerLoading(false); }
+  };
+
   useEffect(() => {
     loadData();
   }, [accountSetId, period, refreshKey]);
 
   const handleImportXkj = async (opt: any) => {
     const fd = new FormData();
-    fd.append('account_set_id', accountSetId);
     fd.append('file', opt.file);
-    const res = await api.post('/migration/import-xiaokuaiji', fd);
-    message.success(`晓会计模板导入成功，新增科目 ${res.data.imported_accounts} 个`);
+    const inspection = await api.post('/migration/inspect-xiaokuaiji', fd);
+    if (!inspection.data.valid) {
+      Modal.error({ title: '迁移预检未通过', width: 620, content: <div>{inspection.data.errors.map((e: string) => <p key={e}>• {e}</p>)}</div> });
+      return;
+    }
+    const ok = await new Promise<boolean>((resolve) => Modal.confirm({
+      title: '晓会计数据迁移预检通过',
+      content: <div><p>科目：{inspection.data.account_rows} 行</p><p>凭证：{inspection.data.voucher_count} 张 / {inspection.data.voucher_rows} 条分录</p><p>导入凭证将保存为草稿，复核后再审核记账。</p></div>,
+      onOk: () => resolve(true), onCancel: () => resolve(false),
+    }));
+    if (!ok) return;
+    const importFd = new FormData(); importFd.append('account_set_id', accountSetId); importFd.append('file', opt.file);
+    const res = await api.post('/migration/import-xiaokuaiji', importFd);
+    message.success(`迁移完成：新增科目 ${res.data.imported_accounts} 个，导入凭证 ${res.data.imported_vouchers} 张，跳过重复 ${res.data.skipped_vouchers} 张`);
     loadData();
     onRefreshBootstrap();
   };
@@ -67,7 +93,7 @@ export const TrialBalance: React.FC<{
           {
             title: '科目名称',
             dataIndex: 'name',
-            render: (name, r) => <span style={{ paddingLeft: (r.level - 1) * 16 }}>{name}</span>,
+            render: (name, r) => <a style={{ paddingLeft: (r.level - 1) * 16 }} onClick={() => openLedger(r)}>{name}</a>,
           },
           { title: '类别', dataIndex: 'category', width: 80, render: (c) => <Tag>{c}</Tag> },
           { title: '期初借方', dataIndex: 'opening_debit', align: 'right', render: (v) => v.toFixed(2) },
@@ -88,6 +114,30 @@ export const TrialBalance: React.FC<{
           },
         ]}
       />
+      <Modal
+        open={!!ledger}
+        width={1050}
+        title={`明细分类账 · ${ledger?.account_code || ''} ${ledger?.account_name || ''}`}
+        onCancel={() => setLedger(null)}
+        footer={<Button onClick={() => setLedger(null)}>关闭</Button>}
+      >
+        <div style={{ marginBottom: 8, color: '#6b7b84' }}>查询范围：{period}　包含草稿、已审核和已记账凭证；余额表金额仅统计已记账凭证。</div>
+        <Table
+          rowKey={(_, i) => String(i)} loading={ledgerLoading} dataSource={ledger?.rows || []}
+          pagination={false} bordered size="small" scroll={{ y: 480 }}
+          columns={[
+            { title: '日期', dataIndex: 'date', width: 110 },
+            { title: '凭证号', dataIndex: 'voucher_no', width: 90, render: (v, r: any) => v ? <a onClick={() => { setLedger(null); onOpenVoucher?.(r.voucher_id); }}>{v}</a> : '' },
+            { title: '科目编码', dataIndex: 'account_code', width: 120 },
+            { title: '摘要', dataIndex: 'summary' },
+            { title: '状态', dataIndex: 'voucher_status', width: 76, render: (v) => v ? ({ DRAFT: '草稿', AUDITED: '审核', POSTED: '记账' } as any)[v] || v : '' },
+            { title: '借方', dataIndex: 'debit', align: 'right', width: 120, render: (v) => v ? Number(v).toFixed(2) : '' },
+            { title: '贷方', dataIndex: 'credit', align: 'right', width: 120, render: (v) => v ? Number(v).toFixed(2) : '' },
+            { title: '方向', dataIndex: 'direction', width: 65, align: 'center' },
+            { title: '余额', dataIndex: 'balance', align: 'right', width: 130, render: (v) => Number(v || 0).toFixed(2) },
+          ]}
+        />
+      </Modal>
     </Card>
   );
 };

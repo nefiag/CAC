@@ -1,8 +1,54 @@
 import io
 import pandas as pd
+from decimal import Decimal, InvalidOperation
+from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import ChartOfAccount, Voucher, VoucherEntry
+from ..schemas import VoucherCreate, VoucherEntryIn
+from .ledger_service import create_voucher
+
+
+def inspect_xiaokuaiji_excel(content: bytes) -> dict:
+    errors, warnings = [], []
+    try:
+        xls = pd.ExcelFile(io.BytesIO(content))
+    except Exception as exc:
+        return {"valid": False, "errors": [f"无法读取 Excel：{exc}"], "warnings": [], "sheets": [], "account_rows": 0, "voucher_rows": 0, "voucher_count": 0}
+    sheets = xls.sheet_names
+    if "会计科目表" not in sheets: errors.append("缺少“会计科目表”工作表")
+    account_rows = voucher_rows = voucher_count = 0
+    account_codes = set()
+    if "会计科目表" in sheets:
+        df = pd.read_excel(xls, sheet_name="会计科目表")
+        required = {"科目编码", "科目名称"}
+        if not required.issubset(df.columns): errors.append("会计科目表缺少科目编码或科目名称列")
+        else:
+            clean = df.dropna(subset=["科目编码", "科目名称"])
+            account_rows = len(clean); codes = clean["科目编码"].astype(str).str.strip()
+            account_codes = set(codes)
+            dup = sorted(codes[codes.duplicated()].unique())
+            if dup: errors.append(f"科目编码重复：{', '.join(dup[:10])}")
+    if "记账凭证" not in sheets:
+        warnings.append("未包含“记账凭证”工作表，将只导入科目")
+    else:
+        df = pd.read_excel(xls, sheet_name="记账凭证")
+        required = {"日期","凭证字","凭证号","摘要","科目编码","借方金额","贷方金额"}
+        missing = required - set(df.columns)
+        if missing: errors.append(f"记账凭证缺少列：{', '.join(sorted(missing))}")
+        else:
+            clean = df.dropna(subset=["日期","凭证号","科目编码"]); voucher_rows = len(clean)
+            unknown = sorted(set(clean["科目编码"].astype(str).str.strip()) - account_codes)
+            if unknown: errors.append(f"凭证使用了科目表中不存在的编码：{', '.join(unknown[:10])}")
+            groups = clean.groupby(["日期","凭证字","凭证号"], dropna=False); voucher_count = len(groups)
+            for key, group in groups:
+                debit = pd.to_numeric(group["借方金额"], errors="coerce").fillna(0).sum()
+                credit = pd.to_numeric(group["贷方金额"], errors="coerce").fillna(0).sum()
+                if abs(float(debit-credit)) > .005 or float(debit) <= 0:
+                    errors.append(f"凭证 {key[1]}-{key[2]}（{key[0]}）借贷不平衡")
+                    if len(errors) >= 30: break
+    return {"valid": not errors, "errors": errors, "warnings": warnings, "sheets": sheets,
+            "account_rows": account_rows, "voucher_rows": voucher_rows, "voucher_count": voucher_count}
 
 
 async def export_xiaokuaiji_compatible_excel(
@@ -64,8 +110,13 @@ async def export_xiaokuaiji_compatible_excel(
 async def import_xiaokuaiji_excel(
     db: AsyncSession, account_set_id: str, content: bytes
 ) -> dict:
+    inspection = inspect_xiaokuaiji_excel(content)
+    if not inspection["valid"]:
+        return {"status": "INVALID", **inspection}
     xls = pd.ExcelFile(io.BytesIO(content))
     imported_accounts = 0
+    imported_vouchers = 0
+    skipped_vouchers = 0
 
     if "会计科目表" in xls.sheet_names:
         df_acc = pd.read_excel(xls, sheet_name="会计科目表").dropna(subset=["科目编码", "科目名称"])
@@ -94,4 +145,29 @@ async def import_xiaokuaiji_excel(
                 imported_accounts += 1
 
     await db.commit()
-    return {"status": "SUCCESS", "imported_accounts": imported_accounts}
+    if "记账凭证" in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name="记账凭证").dropna(subset=["日期", "凭证号", "科目编码"])
+        for (raw_date, word, number), group in df.groupby(["日期", "凭证字", "凭证号"], dropna=False):
+            voucher_date = pd.to_datetime(raw_date).date()
+            period = voucher_date.strftime("%Y-%m")
+            duplicate = (await db.execute(select(Voucher).where(
+                Voucher.account_set_id == account_set_id, Voucher.period == period,
+                Voucher.voucher_word == str(word).strip(), Voucher.voucher_no == int(number),
+            ))).scalar_one_or_none()
+            if duplicate:
+                skipped_vouchers += 1; continue
+            entries = []
+            for _, row in group.iterrows():
+                debit = pd.to_numeric(row.get("借方金额", 0), errors="coerce")
+                credit = pd.to_numeric(row.get("贷方金额", 0), errors="coerce")
+                entries.append(VoucherEntryIn(
+                    summary=str(row.get("摘要", "")), account_code=str(row["科目编码"]).strip(),
+                    debit_amount=Decimal(str(0 if pd.isna(debit) else debit)),
+                    credit_amount=Decimal(str(0 if pd.isna(credit) else credit)),
+                ))
+            # 导入凭证保留待复核状态；原凭证号通过分组顺序可追溯，系统号避免并发冲突。
+            await create_voucher(db, VoucherCreate(account_set_id=account_set_id, period=period,
+                voucher_word=str(word).strip(), voucher_date=voucher_date, status="DRAFT", entries=entries))
+            imported_vouchers += 1
+    return {"status": "SUCCESS", "imported_accounts": imported_accounts,
+            "imported_vouchers": imported_vouchers, "skipped_vouchers": skipped_vouchers, **inspection}

@@ -34,6 +34,42 @@ class AccountSet(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AccountSetSetting(Base):
+    __tablename__ = "account_set_settings"
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id"), primary_key=True)
+    voucher_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    display_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    backup_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Contract(Base):
+    __tablename__ = "contracts"
+    __table_args__ = (UniqueConstraint("account_set_id", "contract_no", name="uq_contract_no"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id"), index=True)
+    contract_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    counterparty_name: Mapped[str] = mapped_column(String(200), default="")
+    direction: Mapped[str] = mapped_column(String(12), default="RECEIVABLE")
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ContractPlan(Base):
+    __tablename__ = "contract_plans"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    contract_id: Mapped[str] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    settled_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    note: Mapped[str] = mapped_column(String(255), default="")
+
+
 class ChartOfAccount(Base):
     __tablename__ = "chart_of_accounts"
     __table_args__ = (UniqueConstraint("account_set_id", "code", name="uq_account_code"),)
