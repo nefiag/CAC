@@ -1,5 +1,5 @@
 from backend.app.auth import hash_password, token_hash, verify_password
-from backend.app.services.statement_agent import expand_statement_archives
+from backend.app.services.statement_agent import _call_gemini_generate, expand_statement_archives, gemini_status
 import io
 import zipfile
 import pytest
@@ -34,3 +34,18 @@ def test_statement_archive_rejects_empty_supported_set():
         archive.writestr("readme.txt", "noise")
     with pytest.raises(ValueError, match="未找到可解析"):
         expand_statement_archives([("batch.zip", payload.getvalue())])
+
+
+def test_gemini_without_key_falls_back_without_network(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    assert _call_gemini_generate([{"text": "test"}]) is None
+    assert gemini_status() == {"configured": False, "model": "gemini-2.5-flash"}
+
+
+def test_gemini_status_never_exposes_key(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "super-secret-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test-model")
+    status = gemini_status()
+    assert status == {"configured": True, "model": "gemini-test-model"}
+    assert "super-secret-key" not in str(status)

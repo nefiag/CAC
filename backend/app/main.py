@@ -26,7 +26,7 @@ from .schemas import (VoucherCreate, VoucherStatusUpdate, StatementTagUpdate, Re
                       AccountSetSettingsUpdate, ContractIn, ContractPlanIn)
 from .services.ledger_service import create_voucher, transition_voucher, get_trial_balance, carry_forward_pnl
 from .services.report_service import build_category_summary, build_income_statement, build_balance_sheet, build_subsidiary_ledger, export_financial_statements_excel
-from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch, expand_statement_archives
+from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch, expand_statement_archives, gemini_status
 from .services.voucher_synthesis import synthesize_vouchers_from_statements
 from .services.migration_engine import (
     export_xiaokuaiji_compatible_excel,
@@ -663,6 +663,7 @@ async def api_import_statements_batch(
         "current_account_parsed_count": len(statements),
         "generated_vouchers_count": generated_count,
         "created_by_account_set": batch_res.get("created_by_account_set", {}),
+        "file_results": batch_res.get("file_results", []),
     }
 
 @app.get("/api/v1/reports/category-summary")
@@ -793,6 +794,12 @@ async def api_list_contracts(account_set_id: str, db: AsyncSession = Depends(get
         plans = (await db.execute(select(ContractPlan).where(ContractPlan.contract_id == c.id).order_by(ContractPlan.due_date))).scalars().all()
         result.append(_contract_dict(c, plans))
     return result
+
+
+@app.get("/api/v1/statements/ai-status")
+async def api_statement_ai_status():
+    """Report AI availability without ever returning credential material."""
+    return gemini_status()
 
 
 @app.post("/api/v1/contracts")

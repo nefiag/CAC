@@ -7,9 +7,12 @@ import base64
 import hashlib
 import calendar
 import urllib.request
+import urllib.error
 import zipfile
 import tarfile
 import gzip
+import logging
+import time
 from decimal import Decimal
 from datetime import datetime, date
 from typing import List, Dict, Any, Tuple
@@ -41,6 +44,15 @@ SUPPORTED_STATEMENT_SUFFIXES = (".xlsx", ".xls", ".csv", ".pdf")
 MAX_ARCHIVE_FILES = 100
 MAX_ARCHIVE_MEMBER_BYTES = 50 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 200 * 1024 * 1024
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+logger = logging.getLogger(__name__)
+
+
+def gemini_status() -> Dict[str, Any]:
+    return {
+        "configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
+        "model": os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+    }
 
 
 def expand_statement_archives(files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
@@ -157,32 +169,50 @@ def _detect_account_code(filename: str, text_hint: str, fallback_code: str) -> s
     return fallback_code
 
 
-def _call_gemini_generate(parts: List[Dict[str, Any]], timeout: int = 90) -> Any:
-    """直接调用 Gemini REST API (gemini-2.5-flash) 并强制返回结构化 JSON"""
+def _call_gemini_generate(
+    parts: List[Dict[str, Any]],
+    timeout: int = 90,
+    response_schema: Dict[str, Any] | None = None,
+) -> Any:
+    """Call Gemini with structured JSON, bounded retries, and a safe local fallback."""
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
     if not api_key:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    generation_config: Dict[str, Any] = {
+        "temperature": 0.1,
+        "responseMimeType": "application/json",
+    }
+    if response_schema:
+        generation_config["responseSchema"] = response_schema
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": generation_config,
     }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(text)
-    except Exception:
-        return None
+    for attempt in range(3):
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(text)
+        except urllib.error.HTTPError as exc:
+            # Authentication and malformed requests do not improve with retries.
+            if exc.code in {400, 401, 403}:
+                logger.warning("Gemini request rejected (%s) using model %s", exc.code, model)
+                return None
+            logger.warning("Gemini transient HTTP error (%s), attempt %s", exc.code, attempt + 1)
+        except (urllib.error.URLError, TimeoutError, KeyError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("Gemini request failed on attempt %s: %s", attempt + 1, type(exc).__name__)
+        if attempt < 2:
+            time.sleep(1 << attempt)
+    return None
 
 
 def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: str) -> List[Dict[str, Any]]:
@@ -209,7 +239,22 @@ def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: st
             }
         },
     ]
-    parsed_list = _call_gemini_generate(parts, timeout=110)
+    parsed_list = _call_gemini_generate(parts, timeout=110, response_schema={
+        "type": "ARRAY",
+        "items": {
+            "type": "OBJECT",
+            "required": ["tx_date", "direction", "amount", "counterparty_name", "counterparty_account", "raw_summary"],
+            "properties": {
+                "tx_date": {"type": "STRING"},
+                "direction": {"type": "STRING", "enum": ["IN", "OUT"]},
+                "amount": {"type": "NUMBER"},
+                "balance_after": {"type": "NUMBER", "nullable": True},
+                "counterparty_name": {"type": "STRING"},
+                "counterparty_account": {"type": "STRING"},
+                "raw_summary": {"type": "STRING"},
+            },
+        },
+    })
     if not isinstance(parsed_list, list):
         return []
 
@@ -247,6 +292,7 @@ def _extract_pdf_via_vision(file_bytes: bytes, filename: str, file_bank_code: st
             "counterparty_name": str(item.get("counterparty_name") or "").strip(),
             "counterparty_account": str(item.get("counterparty_account") or "").strip(),
             "raw_summary": str(item.get("raw_summary") or "").strip(),
+            "parser": "GEMINI_VISION",
         })
     return vision_rows
 
@@ -403,7 +449,18 @@ def _batch_classify_unknown_rows(
         "- code: 最匹配的科目代码（如 550203、1131_1131036、2121_011 等，必须在科目表中存在）\n"
         "- biz_tag: 英文业务标签（如 OFFICE_EXP、CUSTOMER_RECEIPT、VENDOR_PAYMENT 等）"
     )
-    res = _call_gemini_generate([{"text": prompt}], timeout=60)
+    res = _call_gemini_generate([{"text": prompt}], timeout=60, response_schema={
+        "type": "ARRAY",
+        "items": {
+            "type": "OBJECT",
+            "required": ["idx", "code", "biz_tag"],
+            "properties": {
+                "idx": {"type": "INTEGER"},
+                "code": {"type": "STRING"},
+                "biz_tag": {"type": "STRING"},
+            },
+        },
+    })
     mapping: Dict[int, Dict[str, str]] = {}
     if isinstance(res, list):
         valid_codes = {c.code for c in coa_list}
@@ -430,15 +487,34 @@ async def ingest_bank_statement_batch(
     fallback_code = fallback_bank.linked_account_code if fallback_bank else "100209"
 
     all_raw_rows: List[Dict[str, Any]] = []
+    file_results: List[Dict[str, Any]] = []
     for fname, fbytes in files:
+        source_hash = hashlib.sha256(fbytes).hexdigest()
         try:
-            all_raw_rows.extend(_extract_rows(fbytes, fname, fallback_code))
+            extracted = _extract_rows(fbytes, fname, fallback_code)
+            if not extracted:
+                file_results.append({
+                    "filename": fname, "source_sha256": source_hash,
+                    "status": "failed", "reason": "未提取到有效交易流水", "extracted_rows": 0,
+                })
+                continue
+            for row in extracted:
+                row["source_sha256"] = source_hash
+                row.setdefault("parser", "DETERMINISTIC")
+            all_raw_rows.extend(extracted)
+            file_results.append({
+                "filename": fname, "source_sha256": source_hash,
+                "status": "extracted", "reason": "", "extracted_rows": len(extracted),
+            })
         except Exception as e:
-            raise ValueError(f"文件 [{fname}] 解析异常：{str(e)}")
+            file_results.append({
+                "filename": fname, "source_sha256": source_hash,
+                "status": "failed", "reason": str(e), "extracted_rows": 0,
+            })
 
     total_extracted = len(all_raw_rows)
     if not all_raw_rows:
-        return {"statements": [], "all_statements": [], "total_extracted": 0, "dedup_skipped": 0}
+        return {"statements": [], "all_statements": [], "total_extracted": 0, "dedup_skipped": 0, "file_results": file_results}
 
     coa_list = (
         await db.execute(
@@ -518,7 +594,10 @@ async def ingest_bank_statement_batch(
         candidate_rows.append(r)
 
     if not candidate_rows:
-        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
+        for result in file_results:
+            if result["status"] == "extracted":
+                result.update(status="duplicate", reason="全部流水已存在或属于内部互转重复端")
+        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped, "file_results": file_results}
 
     all_fps = [r["_fp"] for r in candidate_rows]
     existing_fps = set(
@@ -537,7 +616,10 @@ async def ingest_bank_statement_batch(
             unique_rows.append(r)
 
     if not unique_rows:
-        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
+        for result in file_results:
+            if result["status"] == "extracted":
+                result.update(status="duplicate", reason="全部流水已存在")
+        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped, "file_results": file_results}
 
     # 3. 本地确定性规则 + 历史缓存匹配；收集完全未知的流水准备单次批量 AI 推理
     unknown_for_llm: List[Dict[str, Any]] = []
@@ -700,6 +782,9 @@ async def ingest_bank_statement_batch(
                 "actual_tx_date": tx_d.isoformat(),
                 "normalized_summary": norm_summary,
                 "source_file": r["source_file"],
+                "source_sha256": r["source_sha256"],
+                "parser": r["parser"],
+                "ai_model": os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL) if biz_tag == "AI_CLASSIFIED" or r["parser"] == "GEMINI_VISION" else None,
             },
             suggested_account_code=suggested_code,
             confidence_score=conf,
@@ -714,6 +799,13 @@ async def ingest_bank_statement_batch(
     created_by_account_set: Dict[str, int] = {}
     for statement in created_records:
         created_by_account_set[statement.account_set_id] = created_by_account_set.get(statement.account_set_id, 0) + 1
+    imported_files = {(s.ai_tags or {}).get("source_file") for s in created_records}
+    for result in file_results:
+        if result["status"] == "extracted":
+            if result["filename"] in imported_files:
+                result.update(status="imported", reason="")
+            else:
+                result.update(status="duplicate", reason="全部流水已存在或属于内部互转重复端")
     return {
         "statements": current_view_records,
         "all_statements": created_records,
@@ -721,6 +813,7 @@ async def ingest_bank_statement_batch(
         "total_extracted": total_extracted,
         "dedup_skipped": dedup_skipped,
         "created_by_account_set": created_by_account_set,
+        "file_results": file_results,
     }
 
 
