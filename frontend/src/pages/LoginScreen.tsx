@@ -8,8 +8,22 @@ export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
   const [loading, setLoading] = useState(false);
   const submit = async (values: any) => {
     setLoading(true); setError('');
-    try { const res = await api.post('/auth/login', values); onLogin(res.data); }
-    catch (e: any) { setError(e?.response?.data?.detail || '登录失败'); }
+    try {
+      // Login is deliberately same-origin. Native fetch avoids browser/proxy
+      // adapters treating the Cloudflare endpoint as a cross-site request.
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `登录失败（HTTP ${res.status}）`);
+      onLogin(data);
+    }
+    catch (e: any) {
+      setError(e?.message ? `登录失败：${e.message}` : '登录失败：浏览器未能连接服务器');
+    }
     finally { setLoading(false); }
   };
   return <div className="login-shell"><Card className="login-card" bordered={false}>
