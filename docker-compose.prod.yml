@@ -34,14 +34,17 @@ services:
     restart: unless-stopped
     depends_on: [backend]
     expose: ["80"]
+    ports:
+      - "127.0.0.1:18810:80"
     networks: [internal]
 
   tunnel:
+    profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on: [frontend]
     networks: [internal]
 
