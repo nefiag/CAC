@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { api } from '../api';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
   const [error, setError] = useState('');
@@ -40,10 +39,24 @@ export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
 
 export function PasswordChange({ user, onChanged }: { user: any, onChanged: () => void }) {
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const submit = async (values: any) => {
-    setError('');
-    try { await api.post('/auth/change-password', values); onChanged(); }
-    catch (e: any) { setError(e?.response?.data?.detail || '修改失败'); }
+    setError(''); setLoading(true);
+    try {
+      const res = await fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `修改失败（HTTP ${res.status}）`);
+      onChanged();
+    }
+    catch (e: any) {
+      setError(e?.message ? `修改失败：${e.message}` : '修改失败：浏览器未能连接服务器');
+    }
+    finally { setLoading(false); }
   };
   return <div className="login-shell"><Card className="login-card" title="首次登录 · 修改密码">
     <Typography.Paragraph>{user.display_name}，请修改初始密码后继续。</Typography.Paragraph>
@@ -51,7 +64,7 @@ export function PasswordChange({ user, onChanged }: { user: any, onChanged: () =
     <Form layout="vertical" onFinish={submit} requiredMark={false}>
       <Form.Item name="current_password" label="当前密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
       <Form.Item name="new_password" label="新密码" rules={[{ required: true, min: 8, message: '至少 8 个字符' }]}><Input.Password /></Form.Item>
-      <Button type="primary" htmlType="submit" block>保存新密码</Button>
+      <Button type="primary" htmlType="submit" block loading={loading}>保存新密码</Button>
     </Form>
   </Card></div>;
 }
