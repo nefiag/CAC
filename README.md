@@ -22,6 +22,18 @@ docker compose up --build
 
 前端默认端口 `3000`，API 默认端口 `8000`。首次启动由后端自动创建数据库表和基础账套数据。
 
+## 生产部署
+
+推荐使用腾讯云 Linux 轻量服务器运行 Docker Compose，并通过 Cloudflare Tunnel 暴露 HTTPS，数据库和后端端口不直接开放公网：
+
+```bash
+cp .env.production.example .env.production
+# 填写随机数据库密码和 Cloudflare Tunnel Token
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+Cloudflare Tunnel 的 Public Hostname 设置为 `coxiaoa.bstks.cn`，服务地址设置为 `http://frontend:80`。
+
 ## 验证
 
 ```bash
