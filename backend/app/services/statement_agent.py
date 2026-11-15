@@ -7,6 +7,9 @@ import base64
 import hashlib
 import calendar
 import urllib.request
+import zipfile
+import tarfile
+import gzip
 from decimal import Decimal
 from datetime import datetime, date
 from typing import List, Dict, Any, Tuple
@@ -33,6 +36,65 @@ BANK_TAIL_TO_CODE = {
     "494642": "100201", # 宇天-宁波银行494642
     "98005": "100211",  # 宇天-内部账户98005
 }
+
+SUPPORTED_STATEMENT_SUFFIXES = (".xlsx", ".xls", ".csv", ".pdf")
+MAX_ARCHIVE_FILES = 100
+MAX_ARCHIVE_MEMBER_BYTES = 50 * 1024 * 1024
+MAX_ARCHIVE_TOTAL_BYTES = 200 * 1024 * 1024
+
+
+def expand_statement_archives(files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+    """Expand safe statement files from ZIP/TAR.GZ/GZ uploads without writing to disk."""
+    expanded: List[Tuple[str, bytes]] = []
+    ignored: List[str] = []
+    total_bytes = 0
+
+    def add_file(name: str, content: bytes):
+        nonlocal total_bytes
+        clean_name = name.replace("\\", "/").split("/")[-1]
+        if not clean_name or clean_name.startswith(".") or not clean_name.lower().endswith(SUPPORTED_STATEMENT_SUFFIXES):
+            ignored.append(name)
+            return
+        if len(content) > MAX_ARCHIVE_MEMBER_BYTES:
+            raise ValueError(f"文件 [{clean_name}] 超过 50MB 限制")
+        total_bytes += len(content)
+        if total_bytes > MAX_ARCHIVE_TOTAL_BYTES:
+            raise ValueError("解压后文件总量超过 200MB 限制")
+        expanded.append((clean_name, content))
+        if len(expanded) > MAX_ARCHIVE_FILES:
+            raise ValueError("单批次最多解析 100 份对账单")
+
+    for filename, content in files:
+        lower = filename.lower()
+        try:
+            if lower.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                    for info in archive.infolist():
+                        if info.is_dir():
+                            continue
+                        if info.file_size > MAX_ARCHIVE_MEMBER_BYTES:
+                            raise ValueError(f"压缩包成员 [{info.filename}] 超过 50MB 限制")
+                        add_file(info.filename, archive.read(info))
+            elif lower.endswith((".tar.gz", ".tgz")):
+                with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+                    for member in archive.getmembers():
+                        if not member.isfile():
+                            continue
+                        if member.size > MAX_ARCHIVE_MEMBER_BYTES:
+                            raise ValueError(f"压缩包成员 [{member.name}] 超过 50MB 限制")
+                        stream = archive.extractfile(member)
+                        if stream:
+                            add_file(member.name, stream.read(MAX_ARCHIVE_MEMBER_BYTES + 1))
+            elif lower.endswith(".gz"):
+                with gzip.GzipFile(fileobj=io.BytesIO(content)) as stream:
+                    add_file(filename[:-3], stream.read(MAX_ARCHIVE_MEMBER_BYTES + 1))
+            else:
+                add_file(filename, content)
+        except (zipfile.BadZipFile, tarfile.TarError, gzip.BadGzipFile, OSError, RuntimeError) as exc:
+            raise ValueError(f"压缩文件 [{filename}] 无法解压：{exc}")
+    if not expanded:
+        raise ValueError("未找到可解析的对账单；支持 XLSX、XLS、CSV、PDF、ZIP、TAR.GZ、TGZ、GZ")
+    return {"files": expanded, "ignored": ignored}
 
 
 def _detect_company_set_id(filename: str, text_hint: str, fallback_set_id: str) -> str:
@@ -376,7 +438,7 @@ async def ingest_bank_statement_batch(
 
     total_extracted = len(all_raw_rows)
     if not all_raw_rows:
-        return {"statements": [], "total_extracted": 0, "dedup_skipped": 0}
+        return {"statements": [], "all_statements": [], "total_extracted": 0, "dedup_skipped": 0}
 
     coa_list = (
         await db.execute(
@@ -456,7 +518,7 @@ async def ingest_bank_statement_batch(
         candidate_rows.append(r)
 
     if not candidate_rows:
-        return {"statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
+        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
 
     all_fps = [r["_fp"] for r in candidate_rows]
     existing_fps = set(
@@ -475,7 +537,7 @@ async def ingest_bank_statement_batch(
             unique_rows.append(r)
 
     if not unique_rows:
-        return {"statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
+        return {"statements": [], "all_statements": [], "total_extracted": total_extracted, "dedup_skipped": dedup_skipped}
 
     # 3. 本地确定性规则 + 历史缓存匹配；收集完全未知的流水准备单次批量 AI 推理
     unknown_for_llm: List[Dict[str, Any]] = []
@@ -649,11 +711,16 @@ async def ingest_bank_statement_batch(
     await db.commit()
 
     current_view_records = [s for s in created_records if s.account_set_id == account_set_id]
+    created_by_account_set: Dict[str, int] = {}
+    for statement in created_records:
+        created_by_account_set[statement.account_set_id] = created_by_account_set.get(statement.account_set_id, 0) + 1
     return {
         "statements": current_view_records,
+        "all_statements": created_records,
         "total_created_all_sets": len(created_records),
         "total_extracted": total_extracted,
         "dedup_skipped": dedup_skipped,
+        "created_by_account_set": created_by_account_set,
     }
 
 

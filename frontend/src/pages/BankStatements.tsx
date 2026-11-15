@@ -47,29 +47,21 @@ export const BankStatements: React.FC<{
     let totalVouchers = 0;
 
     try {
-      for (let i = 0; i < batchFiles.length; i++) {
-        const f = batchFiles[i];
-        message.loading({
-          content: `AI Agent 正在逐份解析对账单 (${i + 1}/${batchFiles.length}): ${f.name}...`,
-          key: 'imp',
-          duration: 0,
-        });
-        const formData = new FormData();
-        formData.append('account_set_id', accountSetId);
-        formData.append('bank_account_id', defaultBankId);
-        formData.append('auto_generate_voucher', String(autoGenOnImport));
-        formData.append('files', f);
-
-        const res = await api.post('/statements/import-batch', formData);
-        const { files_count, parsed_count, dedup_skipped, generated_vouchers_count } = res.data;
-        totalFiles += files_count || 1;
-        totalParsed += parsed_count || 0;
-        totalDedup += dedup_skipped || 0;
-        totalVouchers += generated_vouchers_count || 0;
-      }
+      message.loading({ content: `正在解压并批量解析 ${batchFiles.length} 个上传文件…`, key: 'imp', duration: 0 });
+      const formData = new FormData();
+      formData.append('account_set_id', accountSetId);
+      formData.append('bank_account_id', defaultBankId);
+      formData.append('auto_generate_voucher', String(autoGenOnImport));
+      batchFiles.forEach((file) => formData.append('files', file));
+      const res = await api.post('/statements/import-batch', formData);
+      const { files_count, parsed_count, dedup_skipped, generated_vouchers_count, ignored_files } = res.data;
+      totalFiles = files_count || batchFiles.length;
+      totalParsed = parsed_count || 0;
+      totalDedup = dedup_skipped || 0;
+      totalVouchers = generated_vouchers_count || 0;
 
       message.success({
-        content: `批量处理 ${totalFiles} 份文件：新入库 ${totalParsed} 条，自动去重 ${totalDedup} 条，生成凭证 ${totalVouchers} 张！`,
+        content: `批量处理 ${totalFiles} 份对账单：按企业账套自动分流入库 ${totalParsed} 条，自动去重 ${totalDedup} 条，生成凭证 ${totalVouchers} 张${ignored_files?.length ? `，忽略 ${ignored_files.length} 个非对账单文件` : ''}！`,
         key: 'imp',
         duration: 5,
       });
@@ -135,10 +127,10 @@ export const BankStatements: React.FC<{
             multiple
             beforeUpload={handleBeforeUpload}
             showUploadList={false}
-            accept=".xlsx,.xls,.csv,.pdf"
+            accept=".xlsx,.xls,.csv,.pdf,.zip,.tar.gz,.tgz,.gz"
           >
             <Button type="primary" icon={<UploadOutlined />}>
-              批量上传对账单 (支持多选/自动去重)
+              批量解析入账（多选/ZIP压缩包）
             </Button>
           </Upload>
           <Select

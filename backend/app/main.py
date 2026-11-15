@@ -26,7 +26,7 @@ from .schemas import (VoucherCreate, VoucherStatusUpdate, StatementTagUpdate, Re
                       AccountSetSettingsUpdate, ContractIn, ContractPlanIn)
 from .services.ledger_service import create_voucher, transition_voucher, get_trial_balance, carry_forward_pnl
 from .services.report_service import build_category_summary, build_income_statement, build_balance_sheet, build_subsidiary_ledger, export_financial_statements_excel
-from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch
+from .services.statement_agent import ingest_bank_statement_file, ingest_bank_statement_batch, expand_statement_archives
 from .services.voucher_synthesis import synthesize_vouchers_from_statements
 from .services.migration_engine import (
     export_xiaokuaiji_compatible_excel,
@@ -93,7 +93,7 @@ async def on_startup():
                     current_period="2026-11",
                 )
             )
-        elif "示例科技" in bster_set.company_name:
+        else:
             bster_set.company_name = "博士特电子科技（昆山）有限公司"
 
         # 2. 确保昆山宇天独立账套存在
@@ -111,6 +111,8 @@ async def on_startup():
                     current_period="2026-11",
                 )
             )
+        else:
+            yt_set.company_name = "昆山宇天新能源科技有限公司"
 
         # 3. 为缺少科目的账套初始化完整科目体系
         base_seed_accounts = [
@@ -623,33 +625,42 @@ async def api_import_statements_batch(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    file_pairs = []
+    uploaded_pairs = []
     for f in files:
         content = await f.read()
-        file_pairs.append((f.filename or "upload.xlsx", content))
+        uploaded_pairs.append((f.filename or "upload.xlsx", content))
+
+    try:
+        expanded = expand_statement_archives(uploaded_pairs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     batch_res = await ingest_bank_statement_batch(
-        db, account_set_id, bank_account_id, file_pairs
+        db, account_set_id, bank_account_id, expanded["files"]
     )
     statements = batch_res["statements"]
+    all_statements = batch_res.get("all_statements", statements)
 
     generated_count = 0
-    if auto_generate_voucher and statements:
-        eligible_ids = [
-            s.id for s in statements if float(s.confidence_score) >= confidence_threshold
-        ]
-        if eligible_ids:
-            vouchers = await synthesize_vouchers_from_statements(
-                db, account_set_id, eligible_ids, merge_mode="ONE_TO_ONE"
-            )
-            generated_count = len(vouchers)
+    if auto_generate_voucher and all_statements:
+        eligible_by_set: dict[str, list[str]] = {}
+        for statement in all_statements:
+            if float(statement.confidence_score) >= confidence_threshold:
+                eligible_by_set.setdefault(statement.account_set_id, []).append(statement.id)
+        for target_set_id, eligible_ids in eligible_by_set.items():
+            vouchers = await synthesize_vouchers_from_statements(db, target_set_id, eligible_ids, merge_mode="ONE_TO_ONE")
+            generated_count += len(vouchers)
 
     return {
-        "files_count": len(files),
+        "uploads_count": len(files),
+        "files_count": len(expanded["files"]),
+        "ignored_files": expanded["ignored"],
         "total_extracted": batch_res["total_extracted"],
         "dedup_skipped": batch_res["dedup_skipped"],
-        "parsed_count": len(statements),
+        "parsed_count": len(all_statements),
+        "current_account_parsed_count": len(statements),
         "generated_vouchers_count": generated_count,
+        "created_by_account_set": batch_res.get("created_by_account_set", {}),
     }
 
 @app.get("/api/v1/reports/category-summary")

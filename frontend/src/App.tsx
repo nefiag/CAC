@@ -90,6 +90,10 @@ export default function App() {
   const loadBootstrap = async (targetSetId?: string) => {
     const res = await api.get('/bootstrap', { params: { account_set_id: targetSetId || selectedSetId } });
     setCtx(res.data);
+    if (res.data?.account_set?.id && res.data.account_set.id !== selectedSetId) {
+      localStorage.setItem('ge_account_set_id', res.data.account_set.id);
+      setSelectedSetId(res.data.account_set.id);
+    }
     setSelectedPeriod((old) => old || res.data?.account_set?.current_period || dayjs().format('YYYY-MM'));
   };
   const loadVouchers = async (setId: string, period: string) => {
@@ -174,7 +178,7 @@ export default function App() {
   return <Layout className="classic-shell">
     <Header className="brand-bar">
       <div className="brand"><span className="brand-mark">CX</span><div><b>Coxiaoac</b><small>经典财务工作台</small></div></div>
-      <Space><span className="muted">当前账套</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" options={accountSets.map((s: any) => ({ value: s.id, label: s.company_name }))} /><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
+      <Space><span className="current-set-label">当前账套：</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" popupMatchSelectWidth={false} options={accountSets.map((s: any) => ({ value: s.id, label: s.company_name }))} /><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
       <Space><CalendarOutlined /><Select value={selectedPeriod} onChange={setSelectedPeriod} className="period-picker" options={periods.map((p) => ({ value: p, label: p }))} /><Tooltip title="生成本期损益结转凭证"><Button icon={<ThunderboltOutlined />} onClick={handleCarryForwardPnL}>结转损益</Button></Tooltip><Tag icon={<UserOutlined />}>{user.display_name}</Tag><Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></Space>
     </Header>
     <Menu mode="horizontal" selectedKeys={[moduleKey]} onClick={switchModule} items={moduleItems} className="module-nav" />
