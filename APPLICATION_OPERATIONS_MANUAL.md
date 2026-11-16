@@ -4,7 +4,7 @@
 > 适用项目：博士特套账Cod
 > 最后核验日期：2026-11-16（UTC）
 > 当前生产后端：`https://ge-accounting-api.onrender.com`
-> 当前生产提交：以 Render `ge-accounting-api` 的 `live` 提交为准
+> 当前生产提交：以 Render `boshite-ledger-cod-api` 的 `live` 提交为准
 > 本文不保存密码、数据库连接串、API Key、原始财务文件或其他秘密。
 
 ## 1. 文档目的
@@ -684,10 +684,11 @@ psql "$DATABASE_URL" -f backend/scripts/verify_financial_baseline.sql
 Render 服务：
 
 ```text
-name: ge-accounting-api
+name: boshite-ledger-cod-api
 id:   srv-dbru0c6k1f9s73fngk0g
 repo: https://github.com/nefiag/GeAccounting
 root: backend
+legacy slug/url: ge-accounting-api / https://ge-accounting-api.onrender.com
 ```
 
 构建命令：
