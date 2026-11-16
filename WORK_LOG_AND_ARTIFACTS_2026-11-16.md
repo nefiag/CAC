@@ -265,10 +265,11 @@ SHA-256：
 
 ```text
 GitHub origin:   nefiag/CAC main
-GitHub upstream: nefiag/GeAccounting main
 Windows:         D:\WorkSpace\Codex\CAC
 生产项目目录:    /home/ubuntu/Coxiaoac
 ```
+
+> 后续政策更新：本轮执行时曾同步 `nefiag/GeAccounting`，但用户随后明确要求停止。自该要求起，CAC 只同步 `nefiag/CAC`；不得根据本工作日记的历史记录恢复对 GeAccounting 的推送。
 
 部署使用现有生产 Compose 项目标识 `coxiaoac`，以继续使用正式数据卷：
 
@@ -441,4 +442,3 @@ sudo docker compose -p coxiaoac \
 - 新文件已先保存原件并计算 SHA-256；
 - 新数据属于哪个法人和银行账户；
 - 当前操作是“追加处理”，不是“整体重建”。
-

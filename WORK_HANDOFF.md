@@ -31,9 +31,10 @@ D:\WorkSpace\Codex\CAC
 Git 远端：
 
 ```text
-origin   https://github.com/nefiag/CAC.git
-upstream https://github.com/nefiag/GeAccounting.git
+origin https://github.com/nefiag/CAC.git
 ```
+
+同步政策：CAC 只允许推送到 `nefiag/CAC`。不得再向 `nefiag/GeAccounting` 同步代码、文档或其他项目产物；本地和 Windows 工作副本中的旧 `upstream` 远端已移除。
 
 `/home/nefia/Coxiaoac` 和 `D:\WorkSpace\Codex\CAC` 是同一项目的 Linux/Windows 工作副本。GitHub 主仓库已从 `nefiag/Coxiaoac` 更名为 `nefiag/CAC`；GitHub 会为旧地址提供重定向，但所有新配置必须使用新地址。本地与生产目录仍保留 `Coxiaoac` 兼容名，不能仅为名称一致而直接移动生产目录。
 

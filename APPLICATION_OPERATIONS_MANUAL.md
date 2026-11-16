@@ -86,9 +86,10 @@ D:\WorkSpace\Codex\CAC
 Git 仓库：
 
 ```text
-origin   https://github.com/nefiag/CAC.git
-upstream https://github.com/nefiag/GeAccounting.git
+origin https://github.com/nefiag/CAC.git
 ```
+
+`nefiag/CAC` 是本项目唯一允许同步和发布的 GitHub 仓库。自 2026-11-16 起，禁止再将 CAC 的代码、文档、财务处理产物或提交推送到 `nefiag/GeAccounting`；历史上已经同步的提交不作为继续同步的依据。
 
 `/home/nefia/Coxiaoac` 与 `D:\WorkSpace\Codex\CAC` 是同一项目的两个工作副本，不是两个独立应用。GitHub 主仓库已由历史名称 `nefiag/Coxiaoac` 更名为 `nefiag/CAC`；本地和生产目录暂保留历史名称以避免破坏脚本、部署和数据路径。
 
@@ -749,11 +750,10 @@ git status --short
 .venv/bin/python -m pytest -q
 cd frontend && npm run build && cd ..
 git push origin main
-git push upstream main
 render deploys list srv-dbru0c6k1f9s73fngk0g --output json
 ```
 
-Render 服务仍保留，但 `cac.bstks.cn` 当前主链路使用自托管同源后端。除非明确切换架构，不得把 Render 状态当作自托管生产发布成功的唯一依据。
+Render 服务仍保留，但其历史仓库配置指向 `nefiag/GeAccounting`，不得再用它承载或发布 CAC 的新产物。`cac.bstks.cn` 当前主链路使用自托管同源后端，CAC 发布以 `nefiag/CAC` 和自托管环境为准。
 
 生产环境变量至少包含：
 
