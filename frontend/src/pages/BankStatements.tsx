@@ -196,7 +196,7 @@ export const BankStatements: React.FC<{
                   {r.ai_tags?.is_red_ink && <Tag color="red">红字</Tag>}
                 </Space>
                 <Tooltip title={`实际交易日: ${r.ai_tags?.actual_tx_date || ''} | 来源: ${r.ai_tags?.source_file || ''} | 原始摘要: ${r.raw_summary}`}>
-                  <span style={{ fontSize: 12 }}>{r.ai_tags?.normalized_summary || r.raw_summary}</span>
+                  <span style={{ fontSize: 14 }}>{r.ai_tags?.normalized_summary || r.raw_summary}</span>
                 </Tooltip>
               </Space>
             ),

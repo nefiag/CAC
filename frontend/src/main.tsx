@@ -6,7 +6,20 @@ import App from './App';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#267a9f', borderRadius: 3, fontSize: 13, controlHeight: 30 } }}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#267a9f',
+          borderRadius: 3,
+          fontSize: 15,
+          fontSizeSM: 14,
+          fontSizeLG: 17,
+          controlHeight: 34,
+          controlHeightSM: 28,
+        },
+      }}
+    >
       <App />
     </ConfigProvider>
   </React.StrictMode>
