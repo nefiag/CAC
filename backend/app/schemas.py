@@ -18,7 +18,7 @@ class VoucherCreate(BaseModel):
     voucher_word: str = "记"
     voucher_date: date
     attachment_count: int = 0
-    status: str = "POSTED"
+    status: str = "DRAFT"
     entries: List[VoucherEntryIn]
 
 

@@ -6,6 +6,7 @@ import openpyxl
 import pytest
 
 from backend.app.models import Voucher, VoucherEntry, AccountBalance
+from backend.app.schemas import VoucherCreate, VoucherEntryIn
 from backend.app.services.ledger_service import transition_voucher
 from backend.app.services.migration_engine import inspect_xiaokuaiji_excel
 
@@ -68,3 +69,13 @@ def test_migration_inspection_rejects_unbalanced_workbook():
     report=inspect_xiaokuaiji_excel(workbook_bytes(90))
     assert report['valid'] is False
     assert any('借贷不平衡' in error for error in report['errors'])
+
+
+def test_new_voucher_defaults_to_draft():
+    payload = VoucherCreate(
+        account_set_id="s1",
+        period="2026-11",
+        voucher_date=date(2026, 11, 1),
+        entries=[VoucherEntryIn(summary="test", account_code="1001")],
+    )
+    assert payload.status == "DRAFT"
