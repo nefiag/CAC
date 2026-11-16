@@ -7,7 +7,23 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AccountSet, ChartOfAccount, Voucher, VoucherEntry, AccountBalance
+from ..models import (AccountSet, ChartOfAccount, Voucher, VoucherEntry, AccountBalance,
+                      FinancialImportBatch, FinancialReportSnapshotRow,
+                      FinancialBalanceSnapshot)
+
+
+async def _snapshot_report(db: AsyncSession, account_set_id: str, period: str, report_type: str):
+    rows = (await db.execute(
+        select(FinancialReportSnapshotRow)
+        .join(FinancialImportBatch, FinancialReportSnapshotRow.batch_id == FinancialImportBatch.id)
+        .where(FinancialReportSnapshotRow.account_set_id == account_set_id,
+               FinancialReportSnapshotRow.period == period,
+               FinancialReportSnapshotRow.report_type == report_type,
+               FinancialImportBatch.is_active == True,  # noqa: E712
+               FinancialImportBatch.status == "VALIDATED")
+        .order_by(FinancialReportSnapshotRow.row_no)
+    )).scalars().all()
+    return [dict(row.values) for row in rows]
 
 
 async def _load_coa_and_balances(db: AsyncSession, account_set_id: str, period: str):
@@ -112,6 +128,25 @@ def _sum_prefix(metrics: Dict[str, Dict[str, float]], prefixes: tuple[str, ...],
 
 async def build_category_summary(db: AsyncSession, account_set_id: str, period: str) -> Dict[str, Any]:
     """1. 分类表（一级科目汇总分类表 / 试算平衡表）"""
+    snapshots = (await db.execute(
+        select(FinancialBalanceSnapshot)
+        .join(FinancialImportBatch, FinancialBalanceSnapshot.batch_id == FinancialImportBatch.id)
+        .where(FinancialBalanceSnapshot.account_set_id == account_set_id,
+               FinancialBalanceSnapshot.period == period,
+               FinancialImportBatch.is_active == True,  # noqa: E712
+               FinancialImportBatch.status == "VALIDATED")
+        .order_by(FinancialBalanceSnapshot.source_row_no)
+    )).scalars().all()
+    if snapshots:
+        rows = [{"code": x.account_code, "name": x.account_name, "category": "源表",
+                 "opening_debit": float(x.opening_debit), "opening_credit": float(x.opening_credit),
+                 "period_debit": float(x.period_debit), "period_credit": float(x.period_credit),
+                 "ytd_debit": float(x.ytd_debit), "ytd_credit": float(x.ytd_credit),
+                 "closing_debit": float(x.closing_debit), "closing_credit": float(x.closing_credit)} for x in snapshots]
+        keys = ("opening_debit", "opening_credit", "period_debit", "period_credit", "ytd_debit", "ytd_credit", "closing_debit", "closing_credit")
+        totals = {key: round(sum(row[key] for row in rows if len(row["code"]) == 4), 2) for key in keys}
+        totals["is_balanced"] = abs(totals["closing_debit"] - totals["closing_credit"]) < .01
+        return {"period": period, "rows": rows, "totals": totals, "source_snapshot": True}
     coa_rows, cur_map, jan_map, ytd_dr, ytd_cr = await _load_coa_and_balances(db, account_set_id, period)
     metrics = _leaf_metrics(coa_rows, cur_map, jan_map, ytd_dr, ytd_cr)
 
@@ -182,6 +217,9 @@ async def build_category_summary(db: AsyncSession, account_set_id: str, period: 
 
 async def build_income_statement(db: AsyncSession, account_set_id: str, period: str) -> Dict[str, Any]:
     """2. 损益表（利润表 - 《企业会计制度》2001 标准格式）"""
+    snapshot = await _snapshot_report(db, account_set_id, period, "INCOME_STATEMENT")
+    if snapshot:
+        return {"period": period, "lines": [{**row, "is_bold": row.get("item", "").startswith(("一、", "二、", "三、", "四：", "四、"))} for row in snapshot], "source_snapshot": True}
     coa_rows, cur_map, jan_map, ytd_dr, ytd_cr = await _load_coa_and_balances(db, account_set_id, period)
     metrics = _leaf_metrics(coa_rows, cur_map, jan_map, ytd_dr, ytd_cr)
 
@@ -247,6 +285,16 @@ async def build_income_statement(db: AsyncSession, account_set_id: str, period: 
 
 async def build_balance_sheet(db: AsyncSession, account_set_id: str, period: str) -> Dict[str, Any]:
     """3. 资产负债表（《企业会计制度》2001 标准左右对照结构，含未分配利润实时结转）"""
+    snapshot = await _snapshot_report(db, account_set_id, period, "BALANCE_SHEET")
+    if snapshot:
+        rows = [{"line_no": i + 1, **row,
+                 "asset_bold": row.get("asset_item", "").endswith(("：", "合计", "总计")),
+                 "liab_bold": row.get("liab_item", "").endswith(("：", "合计", "总计"))} for i, row in enumerate(snapshot)]
+        last = snapshot[-1]
+        check = {"total_assets_close": last.get("asset_close", 0),
+                 "total_liab_eq_close": last.get("liab_close", 0),
+                 "is_balanced": abs(float(last.get("asset_close", 0)) - float(last.get("liab_close", 0))) < .01}
+        return {"period": period, "rows": rows, "check": check, "source_snapshot": True}
     coa_rows, cur_map, jan_map, ytd_dr, ytd_cr = await _load_coa_and_balances(db, account_set_id, period)
     metrics = _leaf_metrics(coa_rows, cur_map, jan_map, ytd_dr, ytd_cr)
 

@@ -240,3 +240,74 @@ class BankStatement(Base):
     voucher_id: Mapped[str | None] = mapped_column(ForeignKey("vouchers.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="PARSED")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FinancialImportBatch(Base):
+    __tablename__ = "financial_import_batches"
+    __table_args__ = (
+        UniqueConstraint("account_set_id", "source_sha256", name="uq_fin_import_source"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id"), index=True)
+    period: Mapped[str] = mapped_column(String(7), index=True)
+    source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    sheet_name: Mapped[str] = mapped_column(String(128), default="")
+    status: Mapped[str] = mapped_column(String(20), default="VALIDATED")
+    validation_summary: Mapped[dict] = mapped_column(JSONB, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FinancialSourceRow(Base):
+    __tablename__ = "financial_source_rows"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "sheet_name", "row_no", name="uq_fin_source_row"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("financial_import_batches.id", ondelete="CASCADE"), index=True)
+    sheet_name: Mapped[str] = mapped_column(String(128), default="")
+    row_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_kind: Mapped[str] = mapped_column(String(32), default="DATA")
+    values: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class FinancialBalanceSnapshot(Base):
+    __tablename__ = "financial_balance_snapshots"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "account_code", name="uq_fin_balance_row"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("financial_import_batches.id", ondelete="CASCADE"), index=True)
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id"), index=True)
+    period: Mapped[str] = mapped_column(String(7), index=True)
+    source_row_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    account_code: Mapped[str] = mapped_column(String(32), index=True)
+    account_name: Mapped[str] = mapped_column(String(160), default="")
+    opening_debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    opening_credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    period_debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    period_credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    ytd_debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    ytd_credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    closing_debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+    closing_credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
+
+
+class FinancialReportSnapshotRow(Base):
+    __tablename__ = "financial_report_snapshot_rows"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "row_no", name="uq_fin_report_row"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("financial_import_batches.id", ondelete="CASCADE"), index=True)
+    account_set_id: Mapped[str] = mapped_column(ForeignKey("tenants_account_sets.id"), index=True)
+    period: Mapped[str] = mapped_column(String(7), index=True)
+    report_type: Mapped[str] = mapped_column(String(32), index=True)
+    row_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    values: Mapped[dict] = mapped_column(JSONB, default=dict)

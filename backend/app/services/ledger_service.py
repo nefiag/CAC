@@ -11,6 +11,8 @@ from ..models import (
     VoucherEntry,
     AccountBalance,
     ReaEvent,
+    FinancialBalanceSnapshot,
+    FinancialImportBatch,
 )
 from ..schemas import VoucherCreate, VoucherEntryIn
 
@@ -157,6 +159,34 @@ async def _update_account_balance(
 
 
 async def get_trial_balance(db: AsyncSession, account_set_id: str, period: str) -> list[dict]:
+    snapshot_rows = (
+        await db.execute(
+            select(FinancialBalanceSnapshot)
+            .join(FinancialImportBatch, FinancialBalanceSnapshot.batch_id == FinancialImportBatch.id)
+            .where(
+                FinancialBalanceSnapshot.account_set_id == account_set_id,
+                FinancialBalanceSnapshot.period == period,
+                FinancialImportBatch.is_active == True,  # noqa: E712
+                FinancialImportBatch.status == "VALIDATED",
+            )
+            .order_by(FinancialBalanceSnapshot.source_row_no)
+        )
+    ).scalars().all()
+    if snapshot_rows:
+        accounts = (await db.execute(select(ChartOfAccount).where(
+            ChartOfAccount.account_set_id == account_set_id))).scalars().all()
+        account_map = {a.code: a for a in accounts}
+        return [{
+            "code": row.account_code, "name": row.account_name,
+            "level": account_map.get(row.account_code).level if account_map.get(row.account_code) else 1,
+            "category": account_map.get(row.account_code).category if account_map.get(row.account_code) else "其他",
+            "direction": account_map.get(row.account_code).balance_direction if account_map.get(row.account_code) else "DEBIT",
+            "opening_debit": float(row.opening_debit), "opening_credit": float(row.opening_credit),
+            "period_debit": float(row.period_debit), "period_credit": float(row.period_credit),
+            "ytd_debit": float(row.ytd_debit), "ytd_credit": float(row.ytd_credit),
+            "closing_debit": float(row.closing_debit), "closing_credit": float(row.closing_credit),
+            "source_snapshot": True,
+        } for row in snapshot_rows]
     accounts_res = await db.execute(
         select(ChartOfAccount)
         .where(ChartOfAccount.account_set_id == account_set_id)

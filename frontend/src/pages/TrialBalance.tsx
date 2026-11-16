@@ -62,11 +62,39 @@ export const TrialBalance: React.FC<{
     onRefreshBootstrap();
   };
 
+  const handleImportFinancialReports = async (opt: any) => {
+    const files: File[] = opt.fileList?.map((x: any) => x.originFileObj || x).filter(Boolean) || [opt.file];
+    const fd = new FormData(); files.forEach((file) => fd.append('files', file));
+    try {
+      const inspection = await api.post('/financial-imports/inspect', fd);
+      if (!inspection.data.valid) {
+        const errors = inspection.data.files.flatMap((f: any) => (f.errors || []).map((e: string) => `${f.filename}：${e}`));
+        Modal.error({ title: '财务报表预检未通过', width: 720, content: <div>{errors.map((e: string) => <p key={e}>• {e}</p>)}</div> });
+        opt.onError?.(new Error('预检未通过')); return;
+      }
+      const confirmed = await new Promise<boolean>((resolve) => Modal.confirm({
+        title: '导入已验证财务报表', width: 720,
+        content: <div>{inspection.data.files.map((f: any) => <p key={f.sha256}>• {f.company_name} · {f.period} · {f.document_type} · {f.row_count} 行</p>)}<p>系统将保留源文件哈希和逐行快照；同一主体、期间、报表类型以最新验证批次为当前版本。</p></div>,
+        onOk: () => resolve(true), onCancel: () => resolve(false),
+      }));
+      if (!confirmed) { opt.onError?.(new Error('已取消')); return; }
+      const importFd = new FormData(); files.forEach((file) => importFd.append('files', file));
+      const result = await api.post('/financial-imports/import', importFd);
+      message.success(`导入完成：新增 ${result.data.imported}，重复 ${result.data.duplicates}，失败 ${result.data.failed}`);
+      opt.onSuccess?.(result.data); loadData(); onRefreshBootstrap();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '财务报表导入失败'); opt.onError?.(error);
+    }
+  };
+
   return (
     <Card
       title={`科目余额表（会计期间：${period}）`}
       extra={
         <Space>
+          <Upload customRequest={handleImportFinancialReports} showUploadList={false} accept=".xlsx" multiple>
+            <Button icon={<UploadOutlined />}>导入财务报表（原表对齐）</Button>
+          </Upload>
           <Upload customRequest={handleImportXkj} showUploadList={false} accept=".xlsx">
             <Button icon={<UploadOutlined />}>导入晓会计 Excel 模板</Button>
           </Upload>
@@ -100,6 +128,8 @@ export const TrialBalance: React.FC<{
           { title: '期初贷方', dataIndex: 'opening_credit', align: 'right', render: (v) => v.toFixed(2) },
           { title: '本期借方发生', dataIndex: 'period_debit', align: 'right', render: (v) => v.toFixed(2) },
           { title: '本期贷方发生', dataIndex: 'period_credit', align: 'right', render: (v) => v.toFixed(2) },
+          { title: '本年累计借方', dataIndex: 'ytd_debit', align: 'right', render: (v) => v === undefined ? '' : v.toFixed(2) },
+          { title: '本年累计贷方', dataIndex: 'ytd_credit', align: 'right', render: (v) => v === undefined ? '' : v.toFixed(2) },
           {
             title: '期末借方余额',
             dataIndex: 'closing_debit',

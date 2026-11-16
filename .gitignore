@@ -12,6 +12,9 @@ dist/
 *.sqlite
 *.sqlite3
 *.zip
+private-backups/
+docs/accounting-knowledge/
+docs/boshite-accounting-rules.md
 
 # 前端构建产物
 frontend/node_modules/

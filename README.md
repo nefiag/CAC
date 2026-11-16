@@ -45,3 +45,5 @@ python -m compileall -q backend/app
 ```
 
 REA 证据、功能映射和迁移边界见 [迁移分析](docs/xiaokuaiji-3.0-migration.md)。
+
+博士特 2018–2026 历史账簿、昆山宇天银行对账单和两家公司财务报表归纳出的入账、对账、月结及报表规则见 [博士特账务规则](docs/boshite-accounting-rules.md)。机器可读的历史统计、摘要—科目映射、对账单摘要和回归案例位于 `docs/accounting-knowledge/`。

@@ -33,6 +33,11 @@ from .services.migration_engine import (
     import_xiaokuaiji_excel,
     inspect_xiaokuaiji_excel,
 )
+from .services.financial_import import (
+    import_financial_workbook,
+    inspect_financial_workbook,
+    list_financial_imports,
+)
 from .auth import SESSION_COOKIE, authenticated_user, create_session, hash_password, require_admin, token_hash, verify_password
 from datetime import datetime
 import os
@@ -114,71 +119,8 @@ async def on_startup():
         else:
             yt_set.company_name = "昆山宇天新能源科技有限公司"
 
-        # 3. 为缺少科目的账套初始化完整科目体系
-        base_seed_accounts = [
-            ("1001", "库存现金", "KCXJ", "资产", "DEBIT", True, []),
-            ("1002", "银行存款", "YHCK", "资产", "DEBIT", False, []),
-            ("100201", "银行存款_宁波银行494642", "YHCKNBYH", "资产", "DEBIT", True, []),
-            ("100208", "银行存款_农商行监管账户7104", "YHCKJGZH", "资产", "DEBIT", True, []),
-            ("100209", "银行存款_农商行城北支行7103", "YHCKCBZH", "资产", "DEBIT", True, []),
-            ("100210", "银行存款_农商行贷款专户10047", "YHCKDKZH", "资产", "DEBIT", True, []),
-            ("100211", "银行存款_宁波银行1502/98005", "YHCK1502", "资产", "DEBIT", True, []),
-            ("100212", "银行存款_宁波银行1446", "YHCK1446", "资产", "DEBIT", True, []),
-            ("100215", "银行存款_农商行6321", "YHCK6321", "资产", "DEBIT", True, []),
-            ("1131", "应收账款", "YSZK", "资产", "DEBIT", False, ["CUSTOMER"]),
-            ("1131_1131036", "应收账款_一般客户", "YSZKYBKH", "资产", "DEBIT", True, ["CUSTOMER"]),
-            ("113213", "预付账款_电费", "YFZKDF", "资产", "DEBIT", True, []),
-            ("113214", "预付账款_水费", "YFZKSF", "资产", "DEBIT", True, []),
-            ("113340", "其他应收款_关联方往来", "QTYSKGLF", "资产", "DEBIT", True, []),
-            ("1405", "库存商品", "KCSP", "资产", "DEBIT", True, []),
-            ("1601", "固定资产", "GDZC", "资产", "DEBIT", True, []),
-            ("2121", "应付账款", "YFZK", "负债", "CREDIT", False, ["VENDOR"]),
-            ("2121_011", "应付账款_一般供应商", "YFZKYBGYS", "负债", "CREDIT", True, ["VENDOR"]),
-            ("2151", "应付职工薪酬", "YFZGXC", "负债", "CREDIT", True, []),
-            ("217115", "应交税费_税费扣缴", "YJSFSFKJ", "负债", "CREDIT", True, []),
-            ("218108", "其他应付款_股东往来", "QTYFKGDWL", "负债", "CREDIT", True, []),
-            ("230102", "长期借款_农商行贷款", "CQJKNSH", "负债", "CREDIT", True, []),
-            ("230103", "长期借款_宁波银行贷款", "CQJKNBYH", "负债", "CREDIT", True, []),
-            ("4001", "实收资本", "SSZB", "权益", "CREDIT", True, []),
-            ("510105", "主营业务收入_光伏发电", "ZYYWSRGF", "损益", "CREDIT", True, []),
-            ("510203", "其他业务收入_停车费", "QTYWSRTC", "损益", "CREDIT", True, []),
-            ("540106", "主营业务成本_垃圾清运", "ZYYWCBLJ", "损益", "DEBIT", True, []),
-            ("550203", "管理费用_办公费", "GLFYBGF", "损益", "DEBIT", True, []),
-            ("550204", "管理费用_差旅费", "GLFYCLF", "损益", "DEBIT", True, []),
-            ("550210", "管理费用_保险费", "GLFYBXF", "损益", "DEBIT", True, []),
-            ("550212", "管理费用_住房公积金", "GLFYGJJ", "损益", "DEBIT", True, []),
-            ("550213", "管理费用_社会保险费", "GLFYSB", "损益", "DEBIT", True, []),
-            ("550220", "管理费用_维修维保费", "GLFYWXF", "损益", "DEBIT", True, []),
-            ("550301", "财务费用_手续费", "CWFYSXF", "损益", "DEBIT", True, []),
-            ("550302", "财务费用_利息收入", "CWFYLXSR", "损益", "CREDIT", True, []),
-            ("550303", "财务费用_利息支出", "CWFYLXZC", "损益", "DEBIT", True, []),
-        ]
-
-        for set_id in (DEFAULT_ACCOUNT_SET_ID, YT_ACCOUNT_SET_ID):
-            existing_codes = set(
-                (
-                    await db.execute(
-                        select(ChartOfAccount.code).where(ChartOfAccount.account_set_id == set_id)
-                    )
-                ).scalars().all()
-            )
-            for code, name, py, cat, d, leaf, aux in base_seed_accounts:
-                if code not in existing_codes:
-                    db.add(
-                        ChartOfAccount(
-                            account_set_id=set_id,
-                            code=code,
-                            name=name,
-                            pinyin_abbr=py,
-                            level=1 if len(code) == 4 else 2,
-                            category=cat,
-                            balance_direction=d,
-                            is_leaf=leaf,
-                            aux_types=aux,
-                        )
-                    )
-
-        # 4. 确保昆山宇天银行账户存在
+        # 科目体系只能由已校验的财务基准导入，启动时不混入通用假定科目。
+        # 3. 确保昆山宇天银行账户存在
         yt_bank = (
             await db.execute(select(BankAccount).where(BankAccount.id == YT_BANK_ACCOUNT_ID))
         ).scalar_one_or_none()
@@ -192,21 +134,6 @@ async def on_startup():
                     linked_account_code="100201",
                 )
             )
-
-        # 5. 自动将此前误入博士特账套的宇天未制证流水迁移到宇天独立账套
-        misplaced_yt = (
-            await db.execute(
-                select(BankStatement).where(
-                    BankStatement.account_set_id == DEFAULT_ACCOUNT_SET_ID,
-                    BankStatement.voucher_id.is_(None),
-                )
-            )
-        ).scalars().all()
-        for s in misplaced_yt:
-            src_file = str((s.ai_tags or {}).get("source_file", ""))
-            if "宇天" in src_file or "494642" in src_file or "98005" in src_file:
-                s.account_set_id = YT_ACCOUNT_SET_ID
-                s.bank_account_id = YT_BANK_ACCOUNT_ID
 
         admin_username = os.getenv("ADMIN_USERNAME", "admin").strip().lower()
         admin_password = os.getenv("ADMIN_PASSWORD", "")
@@ -618,6 +545,35 @@ async def api_import_xiaokuaiji(
 @app.post("/api/v1/migration/inspect-xiaokuaiji")
 async def api_inspect_xiaokuaiji(file: UploadFile = File(...)):
     return inspect_xiaokuaiji_excel(await file.read())
+
+
+@app.post("/api/v1/financial-imports/inspect")
+async def api_inspect_financial_imports(files: list[UploadFile] = File(...)):
+    results = []
+    for file in files:
+        content = await file.read()
+        results.append({"filename": file.filename or "upload.xlsx",
+                        **inspect_financial_workbook(file.filename or "upload.xlsx", content)})
+    return {"valid": all(row.get("valid") for row in results), "files": results}
+
+
+@app.post("/api/v1/financial-imports/import")
+async def api_import_financial_reports(files: list[UploadFile] = File(...), db: AsyncSession = Depends(get_db)):
+    results = []
+    for file in files:
+        content = await file.read()
+        result = await import_financial_workbook(db, file.filename or "upload.xlsx", content)
+        results.append({"filename": file.filename or "upload.xlsx", **result})
+    return {"files": results,
+            "imported": sum(row["status"] == "IMPORTED" for row in results),
+            "duplicates": sum(row["status"] == "DUPLICATE" for row in results),
+            "failed": sum(row["status"] == "INVALID" for row in results)}
+
+
+@app.get("/api/v1/financial-imports")
+async def api_list_financial_imports(account_set_id: str, db: AsyncSession = Depends(get_db)):
+    return await list_financial_imports(db, account_set_id)
+
 @app.post("/api/v1/statements/import-batch")
 async def api_import_statements_batch(
     account_set_id: str = Form(...),
