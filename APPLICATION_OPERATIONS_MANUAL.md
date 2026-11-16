@@ -86,9 +86,11 @@ D:\WorkSpace\Codex\CAC
 Git 仓库：
 
 ```text
-origin   https://github.com/nefiag/Coxiaoac.git
+origin   https://github.com/nefiag/CAC.git
 upstream https://github.com/nefiag/GeAccounting.git
 ```
+
+`/home/nefia/Coxiaoac` 与 `D:\WorkSpace\Codex\CAC` 是同一项目的两个工作副本，不是两个独立应用。GitHub 主仓库已由历史名称 `nefiag/Coxiaoac` 更名为 `nefiag/CAC`；本地和生产目录暂保留历史名称以避免破坏脚本、部署和数据路径。
 
 两个仓库当前均为公开仓库，因此严禁提交：
 
