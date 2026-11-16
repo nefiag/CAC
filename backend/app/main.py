@@ -416,7 +416,7 @@ async def api_trial_balance(account_set_id: str, period: str, db: AsyncSession =
 async def api_import_statements(
     account_set_id: str = Form(...),
     bank_account_id: str = Form(...),
-    auto_generate_voucher: bool = Form(True),
+    auto_generate_voucher: bool = Form(False),
     confidence_threshold: float = Form(0.85),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -578,7 +578,7 @@ async def api_list_financial_imports(account_set_id: str, db: AsyncSession = Dep
 async def api_import_statements_batch(
     account_set_id: str = Form(...),
     bank_account_id: str = Form(...),
-    auto_generate_voucher: bool = Form(True),
+    auto_generate_voucher: bool = Form(False),
     confidence_threshold: float = Form(0.85),
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),

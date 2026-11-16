@@ -124,7 +124,8 @@ async def synthesize_vouchers_from_statements(
         for s in group_items:
             s.rea_event_id = rea_event.id
             s.voucher_id = voucher.id
-            s.status = "POSTED"
+            # The synthesized voucher is a draft until a human audits and posts it.
+            s.status = "VOUCHER_DRAFT"
 
         await db.commit()
         created_vouchers.append(voucher)
