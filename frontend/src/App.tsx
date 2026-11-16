@@ -80,7 +80,7 @@ export default function App() {
   const [ctx, setCtx] = useState<any>(null);
   const [bootstrapError, setBootstrapError] = useState('');
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
-  const [selectedSetId, setSelectedSetId] = useState(() => localStorage.getItem('ge_account_set_id') || '00000000-0000-0000-0000-000000000001');
+  const [selectedSetId, setSelectedSetId] = useState(() => localStorage.getItem('boshite_cod_account_set_id') || localStorage.getItem('ge_account_set_id') || '00000000-0000-0000-0000-000000000001');
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [moduleKey, setModuleKey] = useState('home');
   const [activeKey, setActiveKey] = useState('home');
@@ -96,7 +96,7 @@ export default function App() {
       const res = await api.get('/bootstrap', { params: { account_set_id: targetSetId || selectedSetId } });
       setCtx(res.data);
       if (res.data?.account_set?.id && res.data.account_set.id !== selectedSetId) {
-        localStorage.setItem('ge_account_set_id', res.data.account_set.id);
+        localStorage.setItem('boshite_cod_account_set_id', res.data.account_set.id);
         setSelectedSetId(res.data.account_set.id);
       }
       setSelectedPeriod((old) => old || res.data?.account_set?.current_period || dayjs().format('YYYY-MM'));
@@ -129,7 +129,7 @@ export default function App() {
     else setModuleKey(key);
   };
   const switchModule = ({ key }: { key: string }) => { setModuleKey(key); setActiveKey(moduleDefaults[key]); };
-  const handleSwitchAccountSet = (id: string) => { localStorage.setItem('ge_account_set_id', id); setSelectedSetId(id); setSelectedPeriod(''); };
+  const handleSwitchAccountSet = (id: string) => { localStorage.setItem('boshite_cod_account_set_id', id); setSelectedSetId(id); setSelectedPeriod(''); };
   const handleCarryForwardPnL = async () => {
     try {
       await api.post('/vouchers/carry-forward', null, { params: { account_set_id: setId, period: selectedPeriod } });
@@ -162,7 +162,7 @@ export default function App() {
       <Button onClick={() => { setBootstrapError(''); setUser(null); }}>返回登录</Button>
     </Space>
   </div>;
-  if (!ctx) return <div className="app-loading">正在加载 Coxiaoac 经典工作台…</div>;
+  if (!ctx) return <div className="app-loading">正在加载博士特套账Cod…</div>;
   const accountSets = ctx?.account_sets || (ctx?.account_set ? [ctx.account_set] : []);
   const moduleItems = user.role === 'ADMIN' ? [...baseModuleItems, { key: 'users', icon: <UserOutlined />, label: '用户权限' }] : baseModuleItems;
 
@@ -200,7 +200,7 @@ export default function App() {
 
   return <Layout className="classic-shell">
     <Header className="brand-bar">
-      <div className="brand"><span className="brand-mark">CX</span><div><b>Coxiaoac</b><small>经典财务工作台</small></div></div>
+      <div className="brand"><span className="brand-mark">Cod</span><div><b>博士特套账Cod</b><small>标准财务套账工作台</small></div></div>
       <Space><span className="current-set-label">当前账套：</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" popupMatchSelectWidth={false} options={accountSets.map((s: any) => ({ value: s.id, label: s.company_name }))} /><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
       <Space><CalendarOutlined /><Select value={selectedPeriod} onChange={setSelectedPeriod} className="period-picker" options={periods.map((p) => ({ value: p, label: p }))} /><Tooltip title="生成本期损益结转凭证"><Button icon={<ThunderboltOutlined />} onClick={handleCarryForwardPnL}>结转损益</Button></Tooltip><Tag icon={<UserOutlined />}>{user.display_name}</Tag><Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></Space>
     </Header>

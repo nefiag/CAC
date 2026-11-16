@@ -9,7 +9,7 @@ from sqlalchemy import select
 from .database import AsyncSessionLocal
 from .models import User, UserSession
 
-SESSION_COOKIE = "coxiaoac_session"
+SESSION_COOKIE = "boshite_cod_session"
 SESSION_DAYS = 7
 
 

@@ -26,7 +26,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
     finally { setLoading(false); }
   };
   return <div className="login-shell"><Card className="login-card" bordered={false}>
-    <div className="login-brand"><span className="brand-mark">CX</span><div><Typography.Title level={3}>Coxiaoac</Typography.Title><span>经典财务工作台</span></div></div>
+    <div className="login-brand"><span className="brand-mark">Cod</span><div><Typography.Title level={3}>博士特套账Cod</Typography.Title><span>标准财务套账工作台</span></div></div>
     <Typography.Paragraph type="secondary">使用操作员账号登录财务工作台</Typography.Paragraph>
     {error && <Alert type="error" message={error} showIcon />}
     <Form layout="vertical" onFinish={submit} requiredMark={false}>

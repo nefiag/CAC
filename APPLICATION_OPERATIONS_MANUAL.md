@@ -1,17 +1,17 @@
-# Coxiaoac 应用、账务基准与持续运行手册
+# 博士特套账Cod 应用、账务基准与持续运行手册
 
-> 文档状态：生产运行手册（Single Source of Truth）  
-> 适用项目：Coxiaoac / GeAccounting  
-> 最后核验日期：2026-11-16（UTC）  
-> 当前生产后端：`https://ge-accounting-api.onrender.com`  
-> 当前生产提交：以 Render `ge-accounting-api` 的 `live` 提交为准  
+> 文档状态：生产运行手册（Single Source of Truth）
+> 适用项目：博士特套账Cod
+> 最后核验日期：2026-11-16（UTC）
+> 当前生产后端：`https://ge-accounting-api.onrender.com`
+> 当前生产提交：以 Render `ge-accounting-api` 的 `live` 提交为准
 > 本文不保存密码、数据库连接串、API Key、原始财务文件或其他秘密。
 
 ## 1. 文档目的
 
 本文供开发 Agent、运维 Agent、财务处理 Agent 和人工复核人员共同使用。任何接手者应能据此完成：
 
-1. 理解 Coxiaoac 的技术架构、账务边界和数据来源；
+1. 理解 博士特套账Cod 的技术架构、账务边界和数据来源；
 2. 在本地启动、测试、构建和部署应用；
 3. 保护并验证已经建立的博士特、昆山宇天财务基准；
 4. 接收后续银行对账单，完成保存、解析、去重、勾稽、分类和凭证草拟；
@@ -20,6 +20,8 @@
 7. 在出现故障时恢复数据库，避免损坏正式套账。
 
 本文是运行说明，不代替会计人员的专业判断。银行流水只能证明收付款，不能单独证明收入、费用、税种、资本化、工资计提或其他权责发生事项。
+
+品牌与公网入口统一为“博士特套账Cod”和 `https://cac.bstks.cn`。代码目录、Git 仓库、Render 服务、数据库用户/库名及历史备份文件中的 `Coxiaoac`、`GeAccounting` 或 `ge-accounting-api` 属于兼容性技术标识；在完成有备份、可回滚的基础设施迁移前不得仅为改名而破坏现有数据或部署连接。
 
 ## 2. 不可违反的原则
 
@@ -337,7 +339,7 @@ DRAFT <--UNAUDIT-- AUDITED <--UNPOST-- POSTED
 
 - 登录接口签发随机 Session Token；
 - 数据库存储 Token 的 SHA-256，不保存明文；
-- Cookie 名：`coxiaoac_session`；
+- Cookie 名：`boshite_cod_session`；
 - 默认有效期：7 天；
 - 初始密码使用 PBKDF2-SHA256（310,000 轮）保存；
 - 新用户/重置密码后必须修改初始密码。
@@ -737,7 +739,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - 后端仅向内部网络暴露 `8000`；
 - 前端绑定本机 `127.0.0.1:18810`；
 - 可选 Cloudflare Tunnel 暴露 HTTPS；
-- 推荐域名 `coxiaoac.bstks.cn` 指向前端服务。
+- 推荐域名 `cac.bstks.cn` 指向前端服务。
 
 ## 15. 数据库备份、恢复与基准重建
 

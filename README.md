@@ -1,6 +1,6 @@
-# Coxiaoac
+# 博士特套账Cod
 
-面向晓会计个人版 3.0 操作员迁移的现代财务工作台。界面沿用其顶部业务域、业务导航、凭证—审核—记账、账簿联查等操作心智；代码、品牌和数据模型均为 Coxiaoac 自有实现。
+面向博士特及关联账套的现代财务工作台。界面保留财务人员熟悉的业务导航、凭证—审核—记账和账簿联查心智；代码、品牌和数据模型均为博士特套账Cod自有实现。
 
 应用架构、财务基准、对账单处理、部署、恢复和 Agent 接手流程见 [应用与运行手册](APPLICATION_OPERATIONS_MANUAL.md)。
 
@@ -35,7 +35,7 @@ cp .env.production.example .env.production
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-Cloudflare Tunnel 的 Public Hostname 设置为 `coxiaoac.bstks.cn`，服务地址设置为 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
+Cloudflare Tunnel 的 Public Hostname 设置为 `cac.bstks.cn`，服务地址设置为 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
 
 ## 验证
 

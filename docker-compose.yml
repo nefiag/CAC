@@ -1,7 +1,8 @@
+name: boshite-ledger-cod
+
 services:
   db:
     image: postgres:15-alpine
-    container_name: coxiaoac_db
     restart: always
     environment:
       POSTGRES_USER: coxiaoac_user
@@ -19,7 +20,6 @@ services:
 
   backend:
     build: ./backend
-    container_name: coxiaoac_backend
     restart: always
     depends_on:
       db:
@@ -36,7 +36,6 @@ services:
 
   frontend:
     build: ./frontend
-    container_name: coxiaoac_frontend
     restart: always
     depends_on:
       - backend

@@ -42,7 +42,7 @@ from .auth import SESSION_COOKIE, authenticated_user, create_session, hash_passw
 from datetime import datetime
 import os
 
-app = FastAPI(title="Coxiaoac API", version="1.0.0")
+app = FastAPI(title="博士特套账Cod API", version="1.0.0")
 
 PUBLIC_API_PATHS = {"/api/v1/auth/login"}
 
