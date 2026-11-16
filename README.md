@@ -35,7 +35,15 @@ cp .env.production.example .env.production
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-Cloudflare Tunnel 的 Public Hostname 设置为 `cac.bstks.cn`，服务地址设置为 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
+现有生产服务器升级必须添加 `-p coxiaoac`，以继续使用既有 `coxiaoac_coxiaoac_pgdata` 数据卷：
+
+```bash
+docker compose -p coxiaoac --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+当前自托管 Cloudflare Tunnel 的 Public Hostname 为 `cac.bstks.cn`，服务地址为宿主机 `http://127.0.0.1:18810`；若改为 Compose 内置 Tunnel profile，才使用容器服务地址 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
+
+生产状态提示（2026-11-16）：域名、HTTPS、前后端品牌已上线；当前自托管生产库为 2 个账套、0 张凭证、0 条分录。受控环境中已核验的 3,664 张凭证和 14,827 条分录尚待安全迁入生产库。详见运行手册第 5、14 节。
 
 ## 验证
 

@@ -3,8 +3,9 @@
 > 文档状态：生产运行手册（Single Source of Truth）
 > 适用项目：博士特套账Cod
 > 最后核验日期：2026-11-16（UTC）
-> 当前生产后端：`https://ge-accounting-api.onrender.com`
-> 当前生产提交：以 Render `boshite-ledger-cod-api` 的 `live` 提交为准
+> 当前生产入口：`https://cac.bstks.cn`（同源前端与 `/api/v1`）
+> 当前自托管目录：`/home/ubuntu/Coxiaoac`
+> 最后生产核验：2026-11-16（UTC），页面与 API 品牌已更新；生产库基准迁移待完成
 > 本文不保存密码、数据库连接串、API Key、原始财务文件或其他秘密。
 
 ## 1. 文档目的
@@ -74,6 +75,12 @@
 
 ```text
 /home/nefia/Coxiaoac
+```
+
+Windows 协作副本：
+
+```text
+D:\WorkSpace\Codex\CAC
 ```
 
 Git 仓库：
@@ -190,7 +197,19 @@ PostgreSQL
 - `financial_balance_snapshots`
 - `financial_report_snapshot_rows`
 
-## 5. 已建立的生产财务基准
+## 5. 已建立的权威财务基准与生产迁移状态
+
+### 5.0 必须先区分“权威基准”和“当前生产库”
+
+受控环境已经完成并核验下述权威财务基准，但截至 2026-11-16 的只读生产审计显示，`cac.bstks.cn` 当前自托管 PostgreSQL 只有 2 个账套、`0` 张凭证、`0` 条分录。也就是说，权威基准目前尚未迁入该生产库。任何 Agent 都不得把“基准已在受控环境建立”误写成“生产网站已经包含基准数据”。
+
+| 数据域 | 当前状态 |
+|---|---|
+| 受控权威基准 | 3,664 张凭证、14,827 条分录、0 张借贷不平凭证 |
+| `cac.bstks.cn` 自托管生产库 | 2 个账套、0 张凭证、0 条分录（2026-11-16 只读核验） |
+| 生产迁移 | 待定位权威基准数据库/备份并完成有备份、可回滚的迁移 |
+
+生产迁移前必须同时确认源数据库身份、源行数、目标备份、凭证平衡和账套 ID；不得仅凭文件名对生产库执行 `pg_restore --clean` 或基准重建。
 
 ### 5.1 账套
 
@@ -218,7 +237,7 @@ PostgreSQL
 
 ### 5.3 已导入结果
 
-生产基准核验结果：
+受控权威基准核验结果（不是当前生产库行数）：
 
 | 项目 | 数量/结果 |
 |---|---:|
@@ -679,7 +698,22 @@ psql "$DATABASE_URL" -f backend/scripts/verify_financial_baseline.sql
 
 ## 14. 生产部署
 
-### 14.1 当前 Render 后端
+### 14.0 当前生产拓扑（2026-11-16 已核验）
+
+```text
+https://cac.bstks.cn
+  → Cloudflare DNS（代理 CNAME）
+  → Cloudflare Tunnel boshite-park
+     tunnel id: 6127e7ad-ba85-407b-a7c8-cf86264af166
+  → http://127.0.0.1:18810
+  → Nginx 前端容器
+     /api/* → FastAPI backend:8000
+  → PostgreSQL 15（仅 Docker 内部网络）
+```
+
+服务器公网地址和凭据不得写入公开文档。旧域名 `coxiaoac.bstks.cn` 暂保留作兼容入口，不得在新域名稳定性和登录流程复核前删除。
+
+### 14.1 兼容 Render 后端（非当前主入口）
 
 Render 服务：
 
@@ -715,7 +749,7 @@ git push upstream main
 render deploys list srv-dbru0c6k1f9s73fngk0g --output json
 ```
 
-只有部署状态为 `live` 且提交号正确，才算发布完成。
+Render 服务仍保留，但 `cac.bstks.cn` 当前主链路使用自托管同源后端。除非明确切换架构，不得把 Render 状态当作自托管生产发布成功的唯一依据。
 
 生产环境变量至少包含：
 
@@ -731,8 +765,10 @@ render deploys list srv-dbru0c6k1f9s73fngk0g --output json
 cd /home/nefia/Coxiaoac
 cp .env.production.example .env.production
 # 使用密码管理器填写强随机值
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+docker compose -p coxiaoac --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
+
+现有生产卷名为 `coxiaoac_coxiaoac_pgdata`。虽然应用品牌和 Compose 文件中的显示项目名已经更新，生产升级必须暂时显式使用 `-p coxiaoac`，否则 Compose 会创建新的空数据库卷。只有在完成数据库卷迁移、备份恢复演练和行数核验后，才能取消该兼容参数。
 
 生产 Compose：
 
@@ -741,6 +777,15 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - 前端绑定本机 `127.0.0.1:18810`；
 - 可选 Cloudflare Tunnel 暴露 HTTPS；
 - 推荐域名 `cac.bstks.cn` 指向前端服务。
+
+2026-11-16 上线前备份：
+
+```text
+/home/ubuntu/Coxiaoac-backups/before-brand-deploy-20261116T162549Z.dump
+SHA-256 511c0e24495409e83ff0347eebb8eb2b22f5654d5b59c134392f9a40a20e0998
+```
+
+该备份反映迁移前的当前生产库（2 个账套、0 张凭证、0 条分录），不能作为包含历史权威基准的备份使用。
 
 ## 15. 数据库备份、恢复与基准重建
 
@@ -810,7 +855,7 @@ pg_restore --list private-backups/备份.dump
 - [ ] 前端生产构建通过；
 - [ ] 无秘密或财务明细进入 Git；
 - [ ] 数据库结构变更前已备份；
-- [ ] Render/生产部署状态 `live`；
+- [ ] 自托管容器健康；若使用 Render，则对应部署状态为 `live`；
 - [ ] 登录成功；
 - [ ] 两个账套均可打开；
 - [ ] 余额表、利润表、资产负债表接口均为 200；
@@ -852,6 +897,7 @@ pg_restore --list private-backups/备份.dump
 5. 财务报表快照用于忠实呈现权威源表；后续期间应由已记账凭证和余额生成，并与源表交叉验证。
 6. 生产前端与后端若分开托管，应确保同源 `/api/v1` 代理、Cookie 安全属性和 HTTPS 配置一致。
 7. 应增加恢复演练、月结锁定、凭证修改审计日志和导入批次不可变存档。
+8. 当前最高优先级数据任务是把已核验的权威基准安全迁入自托管生产库；完成前生产站点不能被表述为“已有完整历史套账”。
 
 ## 19. 新 Agent 接手步骤
 
@@ -860,7 +906,7 @@ pg_restore --list private-backups/备份.dump
 1. 阅读本文，不直接改生产数据；
 2. 阅读 `README.md`、数据模型、对账单解析、凭证服务和报表服务；
 3. 检查 `git status`，不得覆盖用户未提交的修改；
-4. 确认当前生产提交和 Render 状态；
+4. 确认当前生产提交、自托管容器状态、Cloudflare 入口；涉及 Render 时再核验 Render 状态；
 5. 读取本地受控审计结果，不把敏感文件提交 Git；
 6. 对生产库只做只读清点，除非任务明确授权写入；
 7. 处理新对账单时使用第 10 节流程；
