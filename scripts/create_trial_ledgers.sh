@@ -23,7 +23,7 @@ docker compose -p "$compose_project" --env-file "$env_file" -f "$compose_file" e
 
 docker compose -p "$compose_project" --env-file "$env_file" -f "$compose_file" run --rm \
   -v "$backup_dir:/ledger-backup:ro" \
-  backend python scripts/create_trial_ledgers.py \
+  backend env PYTHONPATH=/app python scripts/create_trial_ledgers.py \
   --backup "/ledger-backup/$(basename "$backup_file")" \
   --sha256 "$sha256"
 
