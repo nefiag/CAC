@@ -816,6 +816,8 @@ scripts/create_trial_ledgers.sh
 
 每个网页账务写入口调用 `backup_before_mutation`：先生成 PostgreSQL custom-format 备份、用 `pg_restore --list` 校验、计算 SHA-256、登记 `ledger_backup_records`，任一步失败即拒绝写入。备份保存在服务器私有 `private-backups/ledger`，不进入 Git。
 
+2026-11-17 已完成生产落地：两套试算账均从截至 2026-10 的正式基准原子克隆，克隆前备份 SHA-256 为 `f9d4fc96b354158932125e4795c574ab6d34990f74b888f55e15ccc445794574`。博士特正式/试算各有 3,664 张凭证、14,827 条分录且借贷总额完全一致；宇天正式/试算的科目、余额、来源批次和源表行数完全一致。全库不平衡凭证为 0，提升请求为 0。
+
 ### 15.1 修改前备份
 
 任何清空、批量导入、表结构变更或规则大改前必须：
