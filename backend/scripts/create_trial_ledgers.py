@@ -40,6 +40,14 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def insert_values(values: dict) -> dict:
+    """Raw SQL text needs JSON/JSONB values serialized for asyncpg."""
+    return {
+        key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+        for key, value in values.items()
+    }
+
+
 async def rows(db, sql: str, **params):
     return (await db.execute(text(sql), params)).mappings().all()
 
@@ -92,7 +100,7 @@ async def clone_pair(db, formal_id: str, trial_id: str, trial_name: str, backup_
             names = list(values)
             await db.execute(text(
                 f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"
-            ), values)
+            ), insert_values(values))
 
     await clone_account_table("chart_of_accounts", ["id","account_set_id","code","name","pinyin_abbr","parent_code","level","category","balance_direction","is_leaf","aux_types"])
     await clone_account_table("rea_resources", ["id","account_set_id","resource_type","code","name","linked_account_code","attributes"])
@@ -110,7 +118,7 @@ async def clone_pair(db, formal_id: str, trial_id: str, trial_name: str, backup_
         for row in entry_rows:
             values = dict(row); values["id"] = mapped(trial_id, row["id"]); values["voucher_id"] = voucher_ids[row["voucher_id"]]
             names = list(values)
-            await db.execute(text(f"INSERT INTO voucher_entries ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), values)
+            await db.execute(text(f"INSERT INTO voucher_entries ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), insert_values(values))
 
     await clone_account_table("account_balances", ["id","account_set_id","period","account_code","aux_hash","opening_debit","opening_credit","period_debit","period_credit"])
     await clone_account_table("bank_accounts", ["id","account_set_id","bank_name","account_no","currency","linked_account_code","rea_resource_id"], {
@@ -142,7 +150,7 @@ async def clone_pair(db, formal_id: str, trial_id: str, trial_name: str, backup_
             values = dict(row); values["id"] = mapped(trial_id, row["id"]); values["batch_id"] = batch_ids[row["batch_id"]]
             if "account_set_id" in values: values["account_set_id"] = trial_id
             names = list(values)
-            await db.execute(text(f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), values)
+            await db.execute(text(f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), insert_values(values))
 
     await clone_account_table("contracts", ["id","account_set_id","contract_no","name","counterparty_name","direction","amount","start_date","end_date","status","note","created_at"])
     contract_ids = id_maps["contracts"]
@@ -153,7 +161,7 @@ async def clone_pair(db, formal_id: str, trial_id: str, trial_name: str, backup_
         for row in plan_rows:
             values = dict(row); values["id"] = mapped(trial_id, row["id"]); values["contract_id"] = contract_ids[row["contract_id"]]
             names = list(values)
-            await db.execute(text(f"INSERT INTO contract_plans ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), values)
+            await db.execute(text(f"INSERT INTO contract_plans ({','.join(names)}) VALUES ({','.join(':'+n for n in names)})"), insert_values(values))
 
     # Grant trial access to every user who can access its formal parent.
     grants = await rows(db, "SELECT user_id FROM auth_user_account_sets WHERE account_set_id=:sid", sid=formal_id)
