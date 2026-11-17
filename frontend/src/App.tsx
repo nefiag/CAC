@@ -5,6 +5,7 @@ import {
   BarChartOutlined, SwapOutlined, CalendarOutlined, ThunderboltOutlined,
   HomeOutlined, SafetyCertificateOutlined, FileSearchOutlined, SettingOutlined,
   RightOutlined, CheckCircleOutlined, DatabaseOutlined, UserOutlined, LogoutOutlined,
+  ExportOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api } from './api';
@@ -28,6 +29,7 @@ const baseModuleItems = [
   { key: 'bank', icon: <BankOutlined />, label: '银行对账' },
   { key: 'arap', icon: <SwapOutlined />, label: '往来核算' },
   { key: 'contract', icon: <FileSearchOutlined />, label: '合同管理' },
+  { key: 'rent_query', icon: <ExportOutlined />, label: '租金查询' },
   { key: 'settings', icon: <SettingOutlined />, label: '系统设置' },
 ];
 
@@ -128,7 +130,14 @@ export default function App() {
     else if (key === 'statements') setModuleKey('bank');
     else setModuleKey(key);
   };
-  const switchModule = ({ key }: { key: string }) => { setModuleKey(key); setActiveKey(moduleDefaults[key]); };
+  const switchModule = ({ key }: { key: string }) => {
+    if (key === 'rent_query') {
+      window.open('https://q.bstks.cn', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setModuleKey(key);
+    setActiveKey(moduleDefaults[key]);
+  };
   const handleSwitchAccountSet = (id: string) => { localStorage.setItem('boshite_cod_account_set_id', id); setSelectedSetId(id); setSelectedPeriod(''); };
   const handleCarryForwardPnL = async () => {
     try {
