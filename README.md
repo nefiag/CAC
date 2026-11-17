@@ -2,7 +2,7 @@
 
 面向博士特及关联账套的现代财务工作台。界面保留财务人员熟悉的业务导航、凭证—审核—记账和账簿联查心智；代码、品牌和数据模型均为博士特套账Cod自有实现。
 
-应用架构、财务基准、对账单处理、部署、恢复和 Agent 接手流程见 [应用与运行手册](APPLICATION_OPERATIONS_MANUAL.md)。
+新 Agent 或维护人员请先阅读 [完整项目说明与 Agent 交接手册](CAC_PROJECT_HANDOFF.md)。应用架构、API 和逐项运行细节见 [应用与运行手册](APPLICATION_OPERATIONS_MANUAL.md)。
 
 2026-11-16 财务基准重建的完整执行记录、验收结果和私有产物索引见 [工作日记与产物说明](WORK_LOG_AND_ARTIFACTS_2026-11-16.md)。
 
@@ -45,7 +45,7 @@ docker compose -p coxiaoac --env-file .env.production -f docker-compose.prod.yml
 
 当前自托管 Cloudflare Tunnel 的 Public Hostname 为 `cac.bstks.cn`，服务地址为宿主机 `http://127.0.0.1:18810`；若改为 Compose 内置 Tunnel profile，才使用容器服务地址 `http://frontend:80`。首次启动使用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建管理员，首次登录后系统会强制修改初始密码。
 
-生产状态提示（2026-11-16）：域名、HTTPS、前后端品牌已上线；自托管生产库已导入 3,664 张凭证、14,827 条分录及 28 个去重后的财务来源批次。两个法人 2026-10 最新科目余额表、利润表、资产负债表已通过“源文件—数据库快照—报表服务”逐行零差异验收。详见运行手册第 5、13、14 节。
+生产状态提示（2026-11-17）：域名、HTTPS、前后端品牌已上线；自托管生产库已导入 3,664 张凭证、14,827 条分录及 28 个去重后的财务来源批次。两个法人 2026-10 最新报表已通过“源文件—数据库快照—报表服务”逐行零差异验收；博士特和宇天试算账已分别建立，正式账已锁定且尚无提升请求。详见完整交接手册。
 
 ## 验证
 
