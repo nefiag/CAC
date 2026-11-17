@@ -17,6 +17,7 @@ cd "$repo_dir"
 docker compose -p "$compose_project" --env-file "$env_file" -f "$compose_file" exec -T db \
   pg_dump -Fc -U coxiaoac_user -d coxiaoac > "$backup_file"
 test -s "$backup_file"
+chmod 600 "$backup_file"
 sha256="$(sha256sum "$backup_file" | awk '{print $1}')"
 docker compose -p "$compose_project" --env-file "$env_file" -f "$compose_file" exec -T db \
   pg_restore --list < "$backup_file" >/dev/null

@@ -42,6 +42,7 @@ async def backup_before_mutation(account_set_id: str, operation: str) -> LedgerB
         temp_path.unlink(missing_ok=True)
         raise RuntimeError(f"账务变更前备份校验失败，已拒绝写入：{verify_error.decode(errors='replace')[-500:]}")
     temp_path.replace(final_path)
+    final_path.chmod(0o600)
 
     digest = hashlib.sha256()
     with final_path.open("rb") as handle:
@@ -59,4 +60,3 @@ async def backup_before_mutation(account_set_id: str, operation: str) -> LedgerB
         await audit_db.commit()
         await audit_db.refresh(record)
     return record
-
