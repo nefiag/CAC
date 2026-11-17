@@ -200,7 +200,8 @@ async def main(args):
 
     async with AsyncSessionLocal() as db:
         backup_record = LedgerBackupRecord(
-            operation="CREATE_TRIAL_LEDGERS", storage_path=str(backup), sha256=actual_sha,
+            operation="CREATE_TRIAL_LEDGERS",
+            storage_path=args.record_path or str(backup), sha256=actual_sha,
             size_bytes=backup.stat().st_size, row_counts={},
             restore_command="docker compose -f docker-compose.prod.yml exec -T db pg_restore --clean --if-exists -U coxiaoac_user -d coxiaoac < BACKUP_FILE",
             status="VERIFIED",
@@ -222,4 +223,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--backup", required=True)
     parser.add_argument("--sha256", required=True)
+    parser.add_argument("--record-path", default="")
     asyncio.run(main(parser.parse_args()))
