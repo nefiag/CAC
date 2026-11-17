@@ -1,5 +1,16 @@
 # 博士特套账Cod 工作交接记录
 
+## 2026-11-17：正式/试算双层账套与强制回滚点
+
+- 博士特、宇天分别新增固定试算账套设计；正式 ID 保持 `...001 / ...002`，试算 ID 为 `...101 / ...102`。
+- 新增 `account_set_environments`、`ledger_backup_records`、`ledger_change_batches`、`ledger_promotion_requests`。
+- 正式账环境为 `FORMAL / PROMOTION_ONLY`；凭证、对账单、财务报表、合同等网页写入口只接受 `TRIAL / TRIAL_WRITABLE`。
+- 每次账务写入前必须实际 `pg_dump`、校验目录并记录 SHA-256；失败即禁止写入。
+- `scripts/create_trial_ledgers.sh` 先备份再原子克隆两套正式基准；已有试算账时拒绝覆盖。
+- `scripts/restore_ledger_backup.sh` 恢复前再次备份当前状态，并要求准确确认短语。
+- 正式提升入口尚未开放，这是审批控制而非缺陷；必须等用户针对具体已验证批次再次明确确认。
+- 本轮后端测试 `12 passed`，前端 TypeScript/Vite 生产构建通过。
+
 > 状态日期：2026-11-16（UTC）  
 > 用途：供后续 Agent 快速恢复上下文、核验现状并继续工作。  
 > 安全要求：本文不得记录密码、Cookie、OAuth Token、数据库连接串、API Key、原始财务文件或个人信息。

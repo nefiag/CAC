@@ -13,6 +13,7 @@ dist/
 *.sqlite3
 *.zip
 private-backups/
+backups/
 docs/accounting-knowledge/
 docs/boshite-accounting-rules.md
 

@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import (
     String,
     Integer,
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -32,6 +33,95 @@ class AccountSet(Base):
     current_period: Mapped[str] = mapped_column(String(7), default="2026-11")
     code_rule: Mapped[str] = mapped_column(String(32), default="4-2-2-2")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AccountSetEnvironment(Base):
+    """Separates immutable formal ledgers from writable trial ledgers.
+
+    Kept in a companion table so existing production databases can be upgraded
+    with ``create_all`` without altering the audited account-set table.
+    """
+    __tablename__ = "account_set_environments"
+
+    account_set_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants_account_sets.id", ondelete="CASCADE"), primary_key=True
+    )
+    environment: Mapped[str] = mapped_column(String(16), default="FORMAL", index=True)
+    parent_account_set_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tenants_account_sets.id"), nullable=True, index=True
+    )
+    write_policy: Mapped[str] = mapped_column(String(32), default="PROMOTION_ONLY")
+    baseline_period: Mapped[str] = mapped_column(String(7), default="")
+    baseline_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class LedgerBackupRecord(Base):
+    """Auditable record for a physical backup made before a ledger mutation."""
+    __tablename__ = "ledger_backup_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    account_set_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tenants_account_sets.id"), nullable=True, index=True
+    )
+    operation: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    row_counts: Mapped[dict] = mapped_column(JSONB, default=dict)
+    restore_command: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="VERIFIED", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LedgerChangeBatch(Base):
+    """A versioned batch applied to a trial ledger and awaiting approval."""
+    __tablename__ = "ledger_change_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    account_set_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants_account_sets.id"), index=True
+    )
+    batch_type: Mapped[str] = mapped_column(String(32), default="TRIAL_IMPORT")
+    source_fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    evidence_manifest: Mapped[dict] = mapped_column(JSONB, default=dict)
+    validation_summary: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="DRAFT", index=True)
+    backup_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ledger_backup_records.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class LedgerPromotionRequest(Base):
+    """Explicit two-step approval gate from trial to formal."""
+    __tablename__ = "ledger_promotion_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=gen_uuid)
+    trial_account_set_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants_account_sets.id"), index=True
+    )
+    formal_account_set_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants_account_sets.id"), index=True
+    )
+    change_batch_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_change_batches.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), default="AWAITING_EXPLICIT_CONFIRMATION", index=True
+    )
+    confirmation_digest: Mapped[str] = mapped_column(String(64), default="")
+    formal_backup_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ledger_backup_records.id"), nullable=True
+    )
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AccountSetSetting(Base):

@@ -21,6 +21,7 @@ from .models import (
     User,
     UserSession,
     UserAccountSet,
+    AccountSetEnvironment,
 )
 from .schemas import (VoucherCreate, VoucherStatusUpdate, StatementTagUpdate, ReverseVoucherRequest,
                       AccountSetSettingsUpdate, ContractIn, ContractPlanIn)
@@ -38,6 +39,8 @@ from .services.financial_import import (
     inspect_financial_workbook,
     list_financial_imports,
 )
+from .services.ledger_environment import require_trial_ledger
+from .services.ledger_backup import backup_before_mutation
 from .auth import SESSION_COOKIE, authenticated_user, create_session, hash_password, require_admin, token_hash, verify_password
 from datetime import datetime
 import os
@@ -75,6 +78,20 @@ DEFAULT_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000001"
 YT_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000002"
 DEFAULT_BANK_ACCOUNT_ID = "00000000-0000-0000-0000-000000000010"
 YT_BANK_ACCOUNT_ID = "00000000-0000-0000-0000-000000000020"
+BOSHITE_TRIAL_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000101"
+YT_TRIAL_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000102"
+
+
+async def prepare_trial_mutation(db: AsyncSession, account_set_id: str, operation: str):
+    """Block formal writes and require a verified physical rollback point."""
+    try:
+        await require_trial_ledger(db, account_set_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return await backup_before_mutation(account_set_id, operation)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.on_event("startup")
@@ -118,6 +135,23 @@ async def on_startup():
             )
         else:
             yt_set.company_name = "昆山宇天新能源科技有限公司"
+
+        # 正式账套默认锁定，只能通过带备份与明确批准的提升流程写入。
+        for formal_id in (DEFAULT_ACCOUNT_SET_ID, YT_ACCOUNT_SET_ID):
+            environment = (
+                await db.execute(
+                    select(AccountSetEnvironment).where(
+                        AccountSetEnvironment.account_set_id == formal_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if not environment:
+                db.add(AccountSetEnvironment(
+                    account_set_id=formal_id,
+                    environment="FORMAL",
+                    write_policy="PROMOTION_ONLY",
+                    baseline_period="2026-10",
+                ))
 
         # 科目体系只能由已校验的财务基准导入，启动时不混入通用假定科目。
         # 3. 确保昆山宇天银行账户存在
@@ -309,9 +343,33 @@ async def bootstrap_context(request: Request, account_set_id: str | None = None,
             select(ReaAgent).where(ReaAgent.account_set_id == acc_set.id)
         )
     ).scalars().all()
+    environments = (
+        await db.execute(
+            select(AccountSetEnvironment).where(
+                AccountSetEnvironment.account_set_id.in_([item.id for item in all_sets])
+            )
+        )
+    ).scalars().all()
+    environment_map = {item.account_set_id: item for item in environments}
+    account_set_rows = []
+    for item in all_sets:
+        environment = environment_map.get(item.id)
+        account_set_rows.append({
+            "id": item.id,
+            "company_name": item.company_name,
+            "taxpayer_type": item.taxpayer_type,
+            "accounting_standard": item.accounting_standard,
+            "start_period": item.start_period,
+            "current_period": item.current_period,
+            "code_rule": item.code_rule,
+            "environment": environment.environment if environment else "UNREGISTERED",
+            "parent_account_set_id": environment.parent_account_set_id if environment else None,
+            "write_policy": environment.write_policy if environment else "BLOCKED",
+            "baseline_period": environment.baseline_period if environment else "",
+        })
     return {
-        "account_set": acc_set,
-        "account_sets": all_sets,
+        "account_set": next(item for item in account_set_rows if item["id"] == acc_set.id),
+        "account_sets": account_set_rows,
         "accounts": accounts,
         "bank_accounts": bank_accounts,
         "agents": agents,
@@ -321,6 +379,7 @@ async def bootstrap_context(request: Request, account_set_id: str | None = None,
 @app.post("/api/v1/vouchers")
 async def api_create_voucher(payload: VoucherCreate, db: AsyncSession = Depends(get_db)):
     try:
+        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_VOUCHER")
         v = await create_voucher(db, payload)
         return {"id": v.id, "voucher_word": v.voucher_word, "voucher_no": v.voucher_no}
     except ValueError as e:
@@ -373,6 +432,7 @@ async def api_transition_voucher(
     if not voucher:
         raise HTTPException(status_code=404, detail="凭证不存在")
     try:
+        await prepare_trial_mutation(db, voucher.account_set_id, f"VOUCHER_{payload.action.upper()}")
         updated = await transition_voucher(db, voucher, payload.action)
         return {"id": updated.id, "status": updated.status}
     except ValueError as exc:
@@ -386,6 +446,10 @@ async def api_delete_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)
     ).scalar_one_or_none()
     if not voucher:
         raise HTTPException(status_code=404, detail="凭证不存在")
+    try:
+        await prepare_trial_mutation(db, voucher.account_set_id, "DELETE_DRAFT_VOUCHER")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if voucher.status != "DRAFT":
         raise HTTPException(status_code=409, detail="只有草稿凭证可以删除")
     await db.delete(voucher)
@@ -396,6 +460,7 @@ async def api_delete_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)
 @app.post("/api/v1/vouchers/carry-forward")
 async def api_carry_forward_pnl(account_set_id: str, period: str, db: AsyncSession = Depends(get_db)):
     try:
+        await prepare_trial_mutation(db, account_set_id, "CARRY_FORWARD_PNL")
         v = await carry_forward_pnl(db, account_set_id, period)
         return {
             "message": "损益结转凭证生成成功",
@@ -421,6 +486,10 @@ async def api_import_statements(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    try:
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_BANK_STATEMENT")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     content = await file.read()
     statements = await ingest_bank_statement_file(
         db, account_set_id, bank_account_id, file.filename or "upload.xlsx", content
@@ -486,6 +555,10 @@ async def api_update_statement_tags(
     stmt = res.scalar_one_or_none()
     if not stmt:
         raise HTTPException(status_code=404, detail="对账单记录不存在")
+    try:
+        await prepare_trial_mutation(db, stmt.account_set_id, "UPDATE_STATEMENT_TAG")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     if payload.suggested_account_code is not None:
         stmt.suggested_account_code = payload.suggested_account_code
@@ -508,6 +581,10 @@ async def api_update_statement_tags(
 async def api_reverse_generate_vouchers(
     payload: ReverseVoucherRequest, db: AsyncSession = Depends(get_db)
 ):
+    try:
+        await prepare_trial_mutation(db, payload.account_set_id, "GENERATE_VOUCHERS_FROM_STATEMENTS")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     vouchers = await synthesize_vouchers_from_statements(
         db=db,
         account_set_id=payload.account_set_id,
@@ -538,6 +615,10 @@ async def api_import_xiaokuaiji(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    try:
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_XIAOKUAIJI")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     content = await file.read()
     return await import_xiaokuaiji_excel(db, account_set_id, content)
 
@@ -558,11 +639,22 @@ async def api_inspect_financial_imports(files: list[UploadFile] = File(...)):
 
 
 @app.post("/api/v1/financial-imports/import")
-async def api_import_financial_reports(files: list[UploadFile] = File(...), db: AsyncSession = Depends(get_db)):
+async def api_import_financial_reports(
+    account_set_id: str = Form(...),
+    files: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_FINANCIAL_REPORTS")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     results = []
     for file in files:
         content = await file.read()
-        result = await import_financial_workbook(db, file.filename or "upload.xlsx", content)
+        result = await import_financial_workbook(
+            db, file.filename or "upload.xlsx", content,
+            target_account_set_id=account_set_id,
+        )
         results.append({"filename": file.filename or "upload.xlsx", **result})
     return {"files": results,
             "imported": sum(row["status"] == "IMPORTED" for row in results),
@@ -583,6 +675,10 @@ async def api_import_statements_batch(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    try:
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_STATEMENT_BATCH")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     uploaded_pairs = []
     for f in files:
         content = await f.read()
@@ -760,6 +856,10 @@ async def api_statement_ai_status():
 
 @app.post("/api/v1/contracts")
 async def api_create_contract(payload: ContractIn, db: AsyncSession = Depends(get_db)):
+    try:
+        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_CONTRACT")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if payload.direction not in {"RECEIVABLE", "PAYABLE"} or payload.amount < 0:
         raise HTTPException(status_code=400, detail="合同方向或金额无效")
     row = Contract(**payload.model_dump())
@@ -775,6 +875,10 @@ async def api_create_contract(payload: ContractIn, db: AsyncSession = Depends(ge
 async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, db: AsyncSession = Depends(get_db)):
     contract = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
     if not contract: raise HTTPException(status_code=404, detail="合同不存在")
+    try:
+        await prepare_trial_mutation(db, contract.account_set_id, "CREATE_CONTRACT_PLAN")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if payload.amount <= 0 or payload.settled_amount < 0 or payload.settled_amount > payload.amount:
         raise HTTPException(status_code=400, detail="计划金额或已结金额无效")
     existing = (await db.execute(select(ContractPlan).where(ContractPlan.contract_id == contract_id))).scalars().all()
@@ -789,6 +893,10 @@ async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, db
 async def api_delete_contract(contract_id: str, db: AsyncSession = Depends(get_db)):
     row = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
     if not row: raise HTTPException(status_code=404, detail="合同不存在")
+    try:
+        await prepare_trial_mutation(db, row.account_set_id, "DELETE_CONTRACT")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     await db.delete(row); await db.commit()
     return {"status": "DELETED"}
 

@@ -78,7 +78,7 @@ export const TrialBalance: React.FC<{
         onOk: () => resolve(true), onCancel: () => resolve(false),
       }));
       if (!confirmed) { opt.onError?.(new Error('已取消')); return; }
-      const importFd = new FormData(); files.forEach((file) => importFd.append('files', file));
+      const importFd = new FormData(); importFd.append('account_set_id', accountSetId); files.forEach((file) => importFd.append('files', file));
       const result = await api.post('/financial-imports/import', importFd);
       message.success(`导入完成：新增 ${result.data.imported}，重复 ${result.data.duplicates}，失败 ${result.data.failed}`);
       opt.onSuccess?.(result.data); loadData(); onRefreshBootstrap();

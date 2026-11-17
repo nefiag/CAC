@@ -223,7 +223,10 @@ async def rebuild(source: Path, analysis: Path, apply: bool) -> dict:
             await db.execute(text("TRUNCATE " + ", ".join(FINANCE_TABLES) + " CASCADE"))
             await ensure_account_sets(db)
             for path in selected:
-                result = await import_financial_workbook(db, str(path.relative_to(source)), path.read_bytes(), commit=False)
+                result = await import_financial_workbook(
+                    db, str(path.relative_to(source)), path.read_bytes(),
+                    commit=False, allow_formal_admin=True,
+                )
                 if result["status"] != "IMPORTED":
                     raise ValueError(f"Workbook import failed: {path}: {result}")
             await import_vouchers(db, analysis)

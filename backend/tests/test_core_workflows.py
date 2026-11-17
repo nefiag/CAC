@@ -29,7 +29,10 @@ class FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_voucher_post_and_unpost_are_balance_reversible():
+async def test_voucher_post_and_unpost_are_balance_reversible(monkeypatch):
+    async def allow_trial(_db, _account_set_id):
+        return None
+    monkeypatch.setattr("backend.app.services.ledger_service.require_trial_ledger", allow_trial)
     voucher = Voucher(id='v1', account_set_id='s1', period='2026-11', voucher_word='记', voucher_no=1, voucher_date=date(2026,11,1), status='AUDITED')
     entries = [
         VoucherEntry(voucher_id='v1', line_no=1, account_code='1001', debit_amount=Decimal('100'), credit_amount=Decimal('0'), aux_hash=''),

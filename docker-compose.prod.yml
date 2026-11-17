@@ -35,6 +35,9 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      LEDGER_BACKUP_DIR: /var/lib/coxiaoac/backups
+    volumes:
+      - ./private-backups/ledger:/var/lib/coxiaoac/backups
     expose: ["8000"]
     networks: [internal]
 

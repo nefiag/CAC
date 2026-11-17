@@ -201,11 +201,13 @@ export default function App() {
   return <Layout className="classic-shell">
     <Header className="brand-bar">
       <div className="brand"><span className="brand-mark">Cod</span><div><b>博士特套账Cod</b><small>标准财务套账工作台</small></div></div>
-      <Space><span className="current-set-label">当前账套：</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" popupMatchSelectWidth={false} options={accountSets.map((s: any) => ({ value: s.id, label: s.company_name }))} /><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
+      <Space><span className="current-set-label">当前账套：</span><Select value={setId} onChange={handleSwitchAccountSet} className="set-picker" popupMatchSelectWidth={false} options={accountSets.map((s: any) => ({ value: s.id, label: `${s.environment === 'TRIAL' ? '【试算】' : '【正式】'}${s.company_name}` }))} /><Tag color={ctx.account_set.environment === 'TRIAL' ? 'orange' : 'green'}>{ctx.account_set.environment === 'TRIAL' ? '试算账套·可编辑' : '正式账套·已锁定'}</Tag><Tag>{ctx.account_set.taxpayer_type === 'GENERAL' ? '一般纳税人' : '小规模纳税人'}</Tag></Space>
       <Space><CalendarOutlined /><Select value={selectedPeriod} onChange={setSelectedPeriod} className="period-picker" options={periods.map((p) => ({ value: p, label: p }))} /><Tooltip title="生成本期损益结转凭证"><Button icon={<ThunderboltOutlined />} onClick={handleCarryForwardPnL}>结转损益</Button></Tooltip><Tag icon={<UserOutlined />}>{user.display_name}</Tag><Button icon={<LogoutOutlined />} onClick={logout}>退出</Button></Space>
     </Header>
     <Menu mode="horizontal" selectedKeys={[moduleKey]} onClick={switchModule} items={moduleItems} className="module-nav" />
     <Content className="workspace">
+      {ctx.account_set.environment === 'TRIAL' && <Alert type="warning" showIcon message="当前为试算账套" description="本账套中的处理不会自动进入正式账。完成核验后，必须等待明确确认并先备份正式账，方可提升。" style={{ marginBottom: 12 }} />}
+      {ctx.account_set.environment !== 'TRIAL' && <Alert type="success" showIcon message="当前为正式账套（只读保护）" description="请切换到对应试算账套录入、解析或调整数据。" style={{ marginBottom: 12 }} />}
       <Tabs type="card" activeKey={activeKey} onChange={go} items={contentItems} className="work-tabs" />
     </Content>
     <footer className="status-bar"><span>账套：{ctx.account_set.company_name}</span><span>期间：{selectedPeriod}</span><span>凭证：{vouchers.length} 张</span><span className="status-ready">● 系统就绪</span></footer>

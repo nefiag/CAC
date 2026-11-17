@@ -15,6 +15,7 @@ from ..models import (
     FinancialImportBatch,
 )
 from ..schemas import VoucherCreate, VoucherEntryIn
+from .ledger_environment import require_trial_ledger
 
 
 def compute_aux_hash(aux_dimensions: dict) -> str:
@@ -27,6 +28,7 @@ def compute_aux_hash(aux_dimensions: dict) -> str:
 async def create_voucher(
     db: AsyncSession, payload: VoucherCreate, rea_event_id: str | None = None
 ) -> Voucher:
+    await require_trial_ledger(db, payload.account_set_id)
     total_debit = sum((e.debit_amount for e in payload.entries), Decimal("0.00"))
     total_credit = sum((e.credit_amount for e in payload.entries), Decimal("0.00"))
     if total_debit != total_credit or total_debit == Decimal("0.00"):
@@ -94,6 +96,7 @@ async def create_voucher(
 
 
 async def transition_voucher(db: AsyncSession, voucher: Voucher, action: str) -> Voucher:
+    await require_trial_ledger(db, voucher.account_set_id)
     transitions = {
         ("DRAFT", "AUDIT"): "AUDITED",
         ("AUDITED", "UNAUDIT"): "DRAFT",

@@ -10,6 +10,7 @@ from typing import Any
 import openpyxl
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from .ledger_environment import require_trial_ledger
 
 from ..models import (
     AccountBalance,
@@ -118,11 +119,19 @@ def _category_and_direction(code: str) -> tuple[str, str]:
 
 
 async def import_financial_workbook(
-    db: AsyncSession, filename: str, content: bytes, *, commit: bool = True
+    db: AsyncSession, filename: str, content: bytes, *, commit: bool = True,
+    target_account_set_id: str | None = None, allow_formal_admin: bool = False,
 ) -> dict:
     info = inspect_financial_workbook(filename, content)
     if not info["valid"]:
         return {"status": "INVALID", **info}
+    detected_account_set_id = info["account_set_id"]
+    if target_account_set_id:
+        await require_trial_ledger(db, target_account_set_id)
+        info["detected_formal_account_set_id"] = detected_account_set_id
+        info["account_set_id"] = target_account_set_id
+    elif not allow_formal_admin:
+        await require_trial_ledger(db, info["account_set_id"])
     duplicate = (await db.execute(select(FinancialImportBatch).where(
         FinancialImportBatch.account_set_id == info["account_set_id"],
         FinancialImportBatch.source_sha256 == info["sha256"],
