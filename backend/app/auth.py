@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request
 from sqlalchemy import select
@@ -11,6 +11,10 @@ from .models import User, UserSession
 
 SESSION_COOKIE = "boshite_cod_session"
 SESSION_DAYS = 7
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def hash_password(password: str) -> str:
@@ -36,7 +40,7 @@ def token_hash(token: str) -> str:
 
 async def create_session(user_id: str) -> tuple[str, datetime]:
     token = secrets.token_urlsafe(48)
-    expires = datetime.utcnow() + timedelta(days=SESSION_DAYS)
+    expires = utc_now() + timedelta(days=SESSION_DAYS)
     async with AsyncSessionLocal() as db:
         db.add(UserSession(user_id=user_id, token_hash=token_hash(token), expires_at=expires))
         await db.commit()
@@ -51,7 +55,7 @@ async def authenticated_user(request: Request) -> User | None:
         row = (await db.execute(
             select(User).join(UserSession, UserSession.user_id == User.id).where(
                 UserSession.token_hash == token_hash(token),
-                UserSession.expires_at > datetime.utcnow(),
+                UserSession.expires_at > utc_now(),
                 User.is_active.is_(True),
             )
         )).scalar_one_or_none()

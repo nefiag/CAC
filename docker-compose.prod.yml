@@ -53,7 +53,7 @@ services:
 
   tunnel:
     profiles: ["tunnel"]
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.1
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:

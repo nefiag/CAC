@@ -5,6 +5,8 @@ __pycache__/
 build/
 dist/
 *.spec
+*.bak
+.pytest_cache/
 
 # 本地环境与数据库文件
 .env

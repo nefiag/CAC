@@ -2,6 +2,8 @@
 import os
 import uvicorn
 
+from database_url import database_url_for_launcher
+
 # 1. 确定运行目录与打包解压目录
 if getattr(sys, 'frozen', False):
     app_dir = os.path.dirname(sys.executable)
@@ -20,10 +22,8 @@ if os.path.exists(env_path):
                 k, v = line.split("=", 1)
                 os.environ[k.strip()] = v.strip()
 
-# 3. 兜底保障：强制指向同级目录的 SQLite 数据库
-if "DATABASE_URL" not in os.environ or "postgresql" in os.environ.get("DATABASE_URL", ""):
-    db_file = os.path.join(app_dir, "ge_accounting.db").replace("\\", "/")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_file}"
+# 3. 未配置数据库时才使用同级 SQLite；显式 PostgreSQL 配置必须原样保留。
+os.environ["DATABASE_URL"] = database_url_for_launcher(app_dir, os.environ.get("DATABASE_URL"))
 
 # 4. 加入内部打包的 backend 搜索路径
 backend_path = os.path.join(bundle_dir, "backend")

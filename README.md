@@ -22,10 +22,21 @@
 ## 启动
 
 ```bash
+cp .env.example .env
+# 在 .env 中设置 POSTGRES_PASSWORD，禁止使用示例或固定密码
 docker compose up --build
 ```
 
-前端默认端口 `3000`，API 默认端口 `8000`。首次启动由后端自动创建数据库表和基础账套数据。
+前端默认端口 `3000`，API 默认端口 `8000`，数据库为 `5432`；开发 Compose
+仅将这些端口绑定到 `127.0.0.1`。容器启动时先执行 `alembic upgrade head`，
+再启动 API 和初始化基础账套数据，应用本身不再隐式修改数据库结构。
+
+手工运行迁移：
+
+```bash
+cd backend
+DATABASE_URL='postgresql+asyncpg://...' alembic upgrade head
+```
 
 ## 生产部署
 

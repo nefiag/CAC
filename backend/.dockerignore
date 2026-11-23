@@ -1,0 +1,10 @@
+.venv
+__pycache__
+**/__pycache__
+*.py[cod]
+*.bak
+.pytest_cache
+tests
+seed_data
+*.db
+*.sqlite*

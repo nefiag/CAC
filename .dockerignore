@@ -1,0 +1,15 @@
+.git
+.env
+.venv
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/*.bak
+**/.pytest_cache
+frontend/node_modules
+frontend/dist
+private-backups
+backups
+*.db
+*.sqlite*
+*.zip

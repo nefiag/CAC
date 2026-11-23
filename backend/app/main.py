@@ -3,10 +3,11 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import io
+from contextlib import asynccontextmanager
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database import engine, Base, get_db, AsyncSessionLocal
+from .database import get_db, AsyncSessionLocal
 from .models import (
     AccountSet,
     ChartOfAccount,
@@ -63,6 +64,9 @@ async def authentication_middleware(request: Request, call_next):
             return Response(content='{"detail":"只读用户不能修改数据"}', status_code=403, media_type="application/json")
         if request.url.path.startswith("/api/v1/users") and user.role != "ADMIN":
             return Response(content='{"detail":"需要系统管理员权限"}', status_code=403, media_type="application/json")
+        account_set_id = request.query_params.get("account_set_id")
+        if account_set_id and not await user_can_access_account_set(user, account_set_id):
+            return Response(content='{"detail":"无权访问该账套"}', status_code=403, media_type="application/json")
     return await call_next(request)
 
 app.add_middleware(
@@ -82,8 +86,30 @@ BOSHITE_TRIAL_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000101"
 YT_TRIAL_ACCOUNT_SET_ID = "00000000-0000-0000-0000-000000000102"
 
 
-async def prepare_trial_mutation(db: AsyncSession, account_set_id: str, operation: str):
-    """Block formal writes and require a verified physical rollback point."""
+async def user_can_access_account_set(user: User, account_set_id: str, db: AsyncSession | None = None) -> bool:
+    if user.role == "ADMIN":
+        return True
+    owns_session = db is None
+    session = db or AsyncSessionLocal()
+    try:
+        grant = await session.scalar(
+            select(UserAccountSet.id).where(
+                UserAccountSet.user_id == user.id,
+                UserAccountSet.account_set_id == account_set_id,
+            )
+        )
+        return grant is not None
+    finally:
+        if owns_session:
+            await session.close()
+
+
+async def prepare_trial_mutation(
+    db: AsyncSession, account_set_id: str, operation: str, user: User | None = None,
+):
+    """Authorize the account set, then enforce trial-only writes and backup."""
+    if user is not None and not await user_can_access_account_set(user, account_set_id, db):
+        raise HTTPException(status_code=403, detail="无权访问该账套")
     try:
         await require_trial_ledger(db, account_set_id)
     except ValueError as exc:
@@ -94,11 +120,7 @@ async def prepare_trial_mutation(db: AsyncSession, account_set_id: str, operatio
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+async def initialize_application():
     async with AsyncSessionLocal() as db:
         # 1. 确保博士特账套存在并更新正式企业名称
         bster_set = (
@@ -183,6 +205,15 @@ async def on_startup():
             ))
 
         await db.commit()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await initialize_application()
+    yield
+
+
+app.router.lifespan_context = lifespan
 
 
 class LoginIn(BaseModel):
@@ -377,9 +408,9 @@ async def bootstrap_context(request: Request, account_set_id: str | None = None,
 
 
 @app.post("/api/v1/vouchers")
-async def api_create_voucher(payload: VoucherCreate, db: AsyncSession = Depends(get_db)):
+async def api_create_voucher(payload: VoucherCreate, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_VOUCHER")
+        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_VOUCHER", request.state.user)
         v = await create_voucher(db, payload)
         return {"id": v.id, "voucher_word": v.voucher_word, "voucher_no": v.voucher_no}
     except ValueError as e:
@@ -424,7 +455,7 @@ async def api_list_vouchers(account_set_id: str, period: str, db: AsyncSession =
 
 @app.patch("/api/v1/vouchers/{voucher_id}/status")
 async def api_transition_voucher(
-    voucher_id: str, payload: VoucherStatusUpdate, db: AsyncSession = Depends(get_db)
+    voucher_id: str, payload: VoucherStatusUpdate, request: Request, db: AsyncSession = Depends(get_db)
 ):
     voucher = (
         await db.execute(select(Voucher).where(Voucher.id == voucher_id))
@@ -432,7 +463,7 @@ async def api_transition_voucher(
     if not voucher:
         raise HTTPException(status_code=404, detail="凭证不存在")
     try:
-        await prepare_trial_mutation(db, voucher.account_set_id, f"VOUCHER_{payload.action.upper()}")
+        await prepare_trial_mutation(db, voucher.account_set_id, f"VOUCHER_{payload.action.upper()}", request.state.user)
         updated = await transition_voucher(db, voucher, payload.action)
         return {"id": updated.id, "status": updated.status}
     except ValueError as exc:
@@ -440,14 +471,14 @@ async def api_transition_voucher(
 
 
 @app.delete("/api/v1/vouchers/{voucher_id}")
-async def api_delete_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)):
+async def api_delete_voucher(voucher_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     voucher = (
         await db.execute(select(Voucher).where(Voucher.id == voucher_id))
     ).scalar_one_or_none()
     if not voucher:
         raise HTTPException(status_code=404, detail="凭证不存在")
     try:
-        await prepare_trial_mutation(db, voucher.account_set_id, "DELETE_DRAFT_VOUCHER")
+        await prepare_trial_mutation(db, voucher.account_set_id, "DELETE_DRAFT_VOUCHER", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     if voucher.status != "DRAFT":
@@ -458,9 +489,9 @@ async def api_delete_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)
 
 
 @app.post("/api/v1/vouchers/carry-forward")
-async def api_carry_forward_pnl(account_set_id: str, period: str, db: AsyncSession = Depends(get_db)):
+async def api_carry_forward_pnl(account_set_id: str, period: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        await prepare_trial_mutation(db, account_set_id, "CARRY_FORWARD_PNL")
+        await prepare_trial_mutation(db, account_set_id, "CARRY_FORWARD_PNL", request.state.user)
         v = await carry_forward_pnl(db, account_set_id, period)
         return {
             "message": "损益结转凭证生成成功",
@@ -479,6 +510,7 @@ async def api_trial_balance(account_set_id: str, period: str, db: AsyncSession =
 
 @app.post("/api/v1/statements/import")
 async def api_import_statements(
+    request: Request,
     account_set_id: str = Form(...),
     bank_account_id: str = Form(...),
     auto_generate_voucher: bool = Form(False),
@@ -487,7 +519,7 @@ async def api_import_statements(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await prepare_trial_mutation(db, account_set_id, "IMPORT_BANK_STATEMENT")
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_BANK_STATEMENT", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     content = await file.read()
@@ -549,14 +581,14 @@ async def api_list_statements(account_set_id: str, db: AsyncSession = Depends(ge
 
 @app.patch("/api/v1/statements/{statement_id}/tags")
 async def api_update_statement_tags(
-    statement_id: str, payload: StatementTagUpdate, db: AsyncSession = Depends(get_db)
+    statement_id: str, payload: StatementTagUpdate, request: Request, db: AsyncSession = Depends(get_db)
 ):
     res = await db.execute(select(BankStatement).where(BankStatement.id == statement_id))
     stmt = res.scalar_one_or_none()
     if not stmt:
         raise HTTPException(status_code=404, detail="对账单记录不存在")
     try:
-        await prepare_trial_mutation(db, stmt.account_set_id, "UPDATE_STATEMENT_TAG")
+        await prepare_trial_mutation(db, stmt.account_set_id, "UPDATE_STATEMENT_TAG", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -579,10 +611,10 @@ async def api_update_statement_tags(
 
 @app.post("/api/v1/statements/reverse-generate-vouchers")
 async def api_reverse_generate_vouchers(
-    payload: ReverseVoucherRequest, db: AsyncSession = Depends(get_db)
+    payload: ReverseVoucherRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     try:
-        await prepare_trial_mutation(db, payload.account_set_id, "GENERATE_VOUCHERS_FROM_STATEMENTS")
+        await prepare_trial_mutation(db, payload.account_set_id, "GENERATE_VOUCHERS_FROM_STATEMENTS", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     vouchers = await synthesize_vouchers_from_statements(
@@ -611,12 +643,13 @@ async def api_export_xiaokuaiji(account_set_id: str, period: str, db: AsyncSessi
 
 @app.post("/api/v1/migration/import-xiaokuaiji")
 async def api_import_xiaokuaiji(
+    request: Request,
     account_set_id: str = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await prepare_trial_mutation(db, account_set_id, "IMPORT_XIAOKUAIJI")
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_XIAOKUAIJI", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     content = await file.read()
@@ -640,12 +673,13 @@ async def api_inspect_financial_imports(files: list[UploadFile] = File(...)):
 
 @app.post("/api/v1/financial-imports/import")
 async def api_import_financial_reports(
+    request: Request,
     account_set_id: str = Form(...),
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await prepare_trial_mutation(db, account_set_id, "IMPORT_FINANCIAL_REPORTS")
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_FINANCIAL_REPORTS", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     results = []
@@ -668,6 +702,7 @@ async def api_list_financial_imports(account_set_id: str, db: AsyncSession = Dep
 
 @app.post("/api/v1/statements/import-batch")
 async def api_import_statements_batch(
+    request: Request,
     account_set_id: str = Form(...),
     bank_account_id: str = Form(...),
     auto_generate_voucher: bool = Form(False),
@@ -676,7 +711,7 @@ async def api_import_statements_batch(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await prepare_trial_mutation(db, account_set_id, "IMPORT_STATEMENT_BATCH")
+        await prepare_trial_mutation(db, account_set_id, "IMPORT_STATEMENT_BATCH", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     uploaded_pairs = []
@@ -855,9 +890,9 @@ async def api_statement_ai_status():
 
 
 @app.post("/api/v1/contracts")
-async def api_create_contract(payload: ContractIn, db: AsyncSession = Depends(get_db)):
+async def api_create_contract(payload: ContractIn, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_CONTRACT")
+        await prepare_trial_mutation(db, payload.account_set_id, "CREATE_CONTRACT", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     if payload.direction not in {"RECEIVABLE", "PAYABLE"} or payload.amount < 0:
@@ -872,11 +907,11 @@ async def api_create_contract(payload: ContractIn, db: AsyncSession = Depends(ge
 
 
 @app.post("/api/v1/contracts/{contract_id}/plans")
-async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, db: AsyncSession = Depends(get_db)):
+async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, request: Request, db: AsyncSession = Depends(get_db)):
     contract = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
     if not contract: raise HTTPException(status_code=404, detail="合同不存在")
     try:
-        await prepare_trial_mutation(db, contract.account_set_id, "CREATE_CONTRACT_PLAN")
+        await prepare_trial_mutation(db, contract.account_set_id, "CREATE_CONTRACT_PLAN", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     if payload.amount <= 0 or payload.settled_amount < 0 or payload.settled_amount > payload.amount:
@@ -890,11 +925,11 @@ async def api_create_contract_plan(contract_id: str, payload: ContractPlanIn, db
 
 
 @app.delete("/api/v1/contracts/{contract_id}")
-async def api_delete_contract(contract_id: str, db: AsyncSession = Depends(get_db)):
+async def api_delete_contract(contract_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     row = (await db.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
     if not row: raise HTTPException(status_code=404, detail="合同不存在")
     try:
-        await prepare_trial_mutation(db, row.account_set_id, "DELETE_CONTRACT")
+        await prepare_trial_mutation(db, row.account_set_id, "DELETE_CONTRACT", request.state.user)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     await db.delete(row); await db.commit()

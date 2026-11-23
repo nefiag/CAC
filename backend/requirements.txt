@@ -2,6 +2,9 @@ fastapi>=0.121,<0.122
 uvicorn[standard]>=0.38,<0.39
 sqlalchemy[asyncio]>=2.0.44,<2.1
 asyncpg>=0.31.0,<0.32
+psycopg[binary]>=3.2,<4
+aiosqlite>=0.20,<1
+alembic>=1.14,<2
 pydantic>=2.12,<2.13
 python-multipart==0.0.12
 pandas>=2.3.3,<2.4

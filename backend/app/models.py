@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, date
+from datetime import UTC, datetime, date
 from decimal import Decimal
 from sqlalchemy import (
     String,
@@ -22,6 +22,11 @@ def gen_uuid():
     return str(uuid.uuid4())
 
 
+def utc_now() -> datetime:
+    """Return naive UTC for existing TIMESTAMP WITHOUT TIME ZONE columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class AccountSet(Base):
     __tablename__ = "tenants_account_sets"
 
@@ -32,7 +37,7 @@ class AccountSet(Base):
     start_period: Mapped[str] = mapped_column(String(7), default="2026-01")
     current_period: Mapped[str] = mapped_column(String(7), default="2026-11")
     code_rule: Mapped[str] = mapped_column(String(32), default="4-2-2-2")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class AccountSetEnvironment(Base):
@@ -53,9 +58,9 @@ class AccountSetEnvironment(Base):
     write_policy: Mapped[str] = mapped_column(String(32), default="PROMOTION_ONLY")
     baseline_period: Mapped[str] = mapped_column(String(7), default="")
     baseline_fingerprint: Mapped[str] = mapped_column(String(64), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
 
@@ -74,7 +79,7 @@ class LedgerBackupRecord(Base):
     row_counts: Mapped[dict] = mapped_column(JSONB, default=dict)
     restore_command: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="VERIFIED", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class LedgerChangeBatch(Base):
@@ -94,7 +99,7 @@ class LedgerChangeBatch(Base):
     backup_id: Mapped[str | None] = mapped_column(
         ForeignKey("ledger_backup_records.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -119,7 +124,7 @@ class LedgerPromotionRequest(Base):
     formal_backup_id: Mapped[str | None] = mapped_column(
         ForeignKey("ledger_backup_records.id"), nullable=True
     )
-    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -130,7 +135,7 @@ class AccountSetSetting(Base):
     voucher_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
     display_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
     backup_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class User(Base):
@@ -142,7 +147,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="ACCOUNTANT", index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class UserAccountSet(Base):
@@ -159,7 +164,7 @@ class UserSession(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("auth_users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Contract(Base):
@@ -176,7 +181,7 @@ class Contract(Base):
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     note: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class ContractPlan(Base):
@@ -240,7 +245,7 @@ class ReaEvent(Base):
     duality_group_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_doc_type: Mapped[str] = mapped_column(String(32), default="MANUAL_VOUCHER")
     raw_payload: Mapped[dict] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Voucher(Base):
@@ -255,7 +260,7 @@ class Voucher(Base):
     attachment_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")
     rea_event_id: Mapped[str | None] = mapped_column(ForeignKey("rea_events.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     entries: Mapped[list["VoucherEntry"]] = relationship(
         "VoucherEntry", back_populates="voucher", cascade="all, delete-orphan"
@@ -329,7 +334,7 @@ class BankStatement(Base):
     rea_event_id: Mapped[str | None] = mapped_column(ForeignKey("rea_events.id"), nullable=True)
     voucher_id: Mapped[str | None] = mapped_column(ForeignKey("vouchers.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="PARSED")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class FinancialImportBatch(Base):
@@ -348,7 +353,7 @@ class FinancialImportBatch(Base):
     status: Mapped[str] = mapped_column(String(20), default="VALIDATED")
     validation_summary: Mapped[dict] = mapped_column(JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class FinancialSourceRow(Base):
