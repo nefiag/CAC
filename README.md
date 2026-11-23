@@ -4,6 +4,8 @@
 
 新 Agent 或维护人员请先阅读 [完整项目说明与 Agent 交接手册](CAC_PROJECT_HANDOFF.md)。应用架构、API 和逐项运行细节见 [应用与运行手册](APPLICATION_OPERATIONS_MANUAL.md)。
 
+面向管理者、使用者与维护者的项目总览及完整文档大纲见 [项目说明与文档大纲](PROJECT_OVERVIEW.md)。
+
 2026-11-16 财务基准重建的完整执行记录、验收结果和私有产物索引见 [工作日记与产物说明](WORK_LOG_AND_ARTIFACTS_2026-11-16.md)。
 
 ## 已实现业务闭环
